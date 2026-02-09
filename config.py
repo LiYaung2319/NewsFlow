@@ -6,7 +6,7 @@ class Settings:
     timeout: float = 30.0
     max_concurrency: int = 10
     service_token: str = ""
-    default_role: str = "pusher"
+    default_role: str = "collector"
 
     push_targets: dict = {
         "wechat_main": {

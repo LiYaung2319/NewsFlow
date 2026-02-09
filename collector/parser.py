@@ -62,11 +62,40 @@ class NeteaseParser(BaseParser):
     source_name: str = "163"
 
     def parse_list(self, selector: Selector) -> List[ParsedItem]:
-        news_list = selector.xpath('//div[@class="news_list"]//a[@href]/@href').getall()
         items = []
-        for url in news_list:
-            if url.startswith("http"):
-                items.append(ParsedItem(title="", url=url, source="163"))
+
+        containers = selector.xpath('//div[contains(@class, "news_df_yw")]')
+        if not containers:
+            containers = selector.xpath('//div[@class="ns_area"]')
+
+        for container in containers:
+            all_links = container.xpath('.//a[@href]')
+            for a in all_links:
+                href = a.xpath('@href').get()
+                title = a.xpath('string(.)').get()
+                if href and title and href.startswith("http"):
+                    title = title.strip()
+                    if title:
+                        items.append(ParsedItem(
+                            title=title,
+                            url=href,
+                            source="163"
+                        ))
+
+        if not items:
+            all_links = selector.xpath('//a[@href]')
+            for a in all_links:
+                href = a.xpath('@href').get()
+                title = a.xpath('string(.)').get()
+                if href and title and href.startswith("http"):
+                    title = title.strip()
+                    if title and len(title) > 5 and "163.com" in href:
+                        items.append(ParsedItem(
+                            title=title,
+                            url=href,
+                            source="163"
+                        ))
+
         return items
 
     def parse_detail(self, selector: Selector) -> ParsedItem:
@@ -133,7 +162,7 @@ SOURCES: Dict[str, Dict[str, Any]] = {
     },
     "163": {
         "parser": NeteaseParser,
-        "home_url": "https://www.163.com/news/",
+        "home_url": "https://www.163.com/",
     },
     "tencent": {
         "parser": TencentParser,

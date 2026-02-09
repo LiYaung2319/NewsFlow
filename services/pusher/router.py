@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from .schemas import PushRequest, PushResponse, TargetListResponse
 from .senders import SENDERS
 from config import settings
@@ -23,16 +23,11 @@ def get_target_config(target: str) -> Dict[str, Any]:
 async def _push_to_target(
     target: str,
     items: List[Dict[str, Any]],
-    webhook_url: str = ""
 ) -> Dict[str, int]:
     """推送消息到单个目标"""
-    if webhook_url:
-        url = webhook_url
-        sender_type = "custom"
-    else:
-        config = get_target_config(target)
-        sender_type = config.get("type", "unknown")
-        url = config.get("webhook_url")
+    config = get_target_config(target)
+    sender_type = config.get("type", "unknown")
+    url = config.get("webhook_url")
     
     sender_class = SENDERS.get(sender_type)
     if not sender_class:
