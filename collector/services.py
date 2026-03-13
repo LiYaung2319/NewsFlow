@@ -12,7 +12,7 @@ POST /collect: 执行数据采集
 """
 
 from fastapi import APIRouter
-from collector.client import CollectorClient
+from collector.browser_client import BrowserClient
 from collector.parser import SOURCES, SOURCES_KEYS
 from schemas import CollectRequest, CollectResponse
 
@@ -59,7 +59,7 @@ async def collect(request: CollectRequest):
     CollectResponse 采集响应对象，包含状态、结果和错误信息
     """
     # 使用 async with 自动管理客户端生命周期
-    async with CollectorClient() as client:
+    async with BrowserClient() as client:
         # ========== 确定要采集的数据源 ==========
         # "all" 或空列表表示采集全部数据源
         if "all" in request.sources or not request.sources:

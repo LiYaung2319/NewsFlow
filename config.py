@@ -19,14 +19,19 @@ class Settings:
     """
 
     # ========== 服务配置 ==========
-    collector_host: str = "0.0.0.0"  # 采集服务监听地址，0.0.0.0 表示监听所有网卡
+    collector_host: str = "0.0.0.0"  # 采集服务监听地址
     collector_port: int = 23119  # 采集服务端口号
     pusher_host: str = "0.0.0.0"  # 推送服务监听地址
     pusher_port: int = 23120  # 推送服务端口号
 
-    # ========== HTTP 请求配置 ==========
-    timeout: float = 30.0  # HTTP 请求超时时间（秒），请求超过30秒则超时
-    max_concurrency: int = 10  # 最大并发请求数，同时最多发起10个 HTTP 请求
+    # ========== 浏览器请求配置 ==========
+    browser_headless: bool = True  # 浏览器无头模式（不显示窗口）
+    browser_timeout: float = 30.0  # 浏览器请求超时时间（秒）
+    browser_wait_until: str = (
+        "networkidle"  # 等待策略（load/domcontentloaded/networkidle）
+    )
+    browser_wait_time: int = 0  # 额外等待时间（秒），等待动态内容
+    max_concurrency: int = 3  # 最大并发页数（浏览器资源占用较大）
 
     # ========== 服务间通信配置 ==========
     service_token: str = ""  # 服务间认证 Token，预留字段用于服务间安全通信

@@ -7,6 +7,11 @@ NewsFlow 项目入口模块
 2. 命令行运行：uvicorn main:app --host 0.0.0.0 --port 23119 --reload
 """
 
+import sys
+if sys.platform == "win32":
+    import asyncio
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
 from fastapi import FastAPI
 from collector.services import router as collect_router
 from config import settings
@@ -47,4 +52,5 @@ if __name__ == "__main__":
         host=settings.collector_host,
         port=settings.collector_port,
         reload=True,  # 开发模式开启热重载
+        loop="none",
     )

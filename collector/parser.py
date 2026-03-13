@@ -208,9 +208,8 @@ class TencentParser(BaseParser):
     腾讯新闻解析器
 
     解析规则：
-    1. 从 div.BW8UAt3nyAHToseflkyM channel-command 提取文章标题和链接
-    2. 从 swiper.channel-hot-list 提取热点精选文章标题和链接
-    3. 过滤无效链接（javascript:、非 http 开头）
+    1. 从 div.BW8UAt3nyAHToseflkyM channel-command 下的 top-article 和 command-content-row 提取要闻标题和链接
+    2. 从 div.swiper-wrapper 下的每个 article-base-info 提取热点精选标题和链接
     """
 
     source_name: str = "tencent"
@@ -220,63 +219,52 @@ class TencentParser(BaseParser):
         解析腾讯新闻首页列表
 
         提取内容：
-        1. channel-command 区块：包含要闻文章
-        2. channel-hot-list 区块：包含热点精选文章
+        1. channel-command 区块：
+           - .top-article 下的所有链接
+           - .command-content-row 下的所有链接
+        2. swiper-wrapper 区块：
+           - 每个 article-base-info 中的链接和标题
 
         返回：
         List[ParsedItem]: 解析出的新闻列表
         """
         items = []
+        seen_urls = set()
 
-        # ========== 策略1：提取 channel-command 区块 ==========
-        # 从 div.BW8UAt3nyAHToseflkyM channel-command 提取所有链接
-        command_links = selector.xpath(
-            '//div[contains(@class, "BW8UAt3nyAHToseflkyM") and contains(@class, "channel-command")]//a[@href]/@href'
-        ).getall()
+        command_container = selector.xpath(
+            '//div[contains(@class, "BW8UAt3nyAHToseflkyM") and contains(@class, "channel-command")]'
+        )
+        swiper_container = selector.xpath('//div[contains(@class, "swiper-wrapper")]')
 
-        command_titles = selector.xpath(
-            '//div[contains(@class, "BW8UAt3nyAHToseflkyM") and contains(@class, "channel-command")]//a[@href]//text()'
-        ).getall()
-
-        # 按索引配对标题和链接
-        for i, href in enumerate(command_links):
-            if href and href.startswith("http"):
-                # 从索引获取标题，如果超出范围则使用链接文本
-                title = command_titles[i].strip() if i < len(command_titles) else ""
-                if not title:
-                    # 尝试从链接元素获取完整文本
-                    title_elements = selector.xpath(
-                        f'//div[contains(@class, "BW8UAt3nyAHToseflkyM") and contains(@class, "channel-command")]//a[@href="{href}"]//text()'
-                    ).getall()
-                    title = "".join(title_elements).strip()
-
+        for a in command_container.xpath(
+            './/a[@href and contains(@class, "link-item")]'
+        ):
+            href = a.xpath("@href").get()
+            if href and href.startswith("http") and href not in seen_urls:
+                title = a.xpath("string(.)").get()
                 if title:
-                    items.append(
-                        ParsedItem(title=title, url=href, source=self.source_name)
-                    )
-
-        # ========== 策略2：提取 channel-hot-list 区块 ==========
-        # 提取热点精选文章的标题和链接
-        hot_list_titles = selector.xpath(
-            '//div[contains(@class, "channel-hot-list")]//span[contains(@class, "article-title-text")]/text()'
-        ).getall()
-
-        hot_list_links = selector.xpath(
-            '//div[contains(@class, "channel-hot-list")]//a[contains(@class, "article-base-info")]/@href'
-        ).getall()
-
-        # 配对标题和链接
-        seen_urls = set(item.url for item in items)
-        for i, title in enumerate(hot_list_titles):
-            if i < len(hot_list_links):
-                href = hot_list_links[i]
-                if href and href.startswith("http") and href not in seen_urls:
-                    items.append(
-                        ParsedItem(
-                            title=title.strip(), url=href, source=self.source_name
+                    title = title.strip()
+                    if title and len(title) > 0:
+                        items.append(
+                            ParsedItem(title=title, url=href, source=self.source_name)
                         )
-                    )
-                    seen_urls.add(href)
+                        seen_urls.add(href)
+
+        for a in swiper_container.xpath('.//a[contains(@class, "article-base-info")]'):
+            href = a.xpath("@href").get()
+            if href and href.startswith("http") and href not in seen_urls:
+                title_span = a.xpath('.//span[contains(@class, "article-title-text")]')
+                if title_span:
+                    title = title_span.xpath("string(.)").get()
+                    if title:
+                        title = title.strip()
+                        if title and len(title) > 0:
+                            items.append(
+                                ParsedItem(
+                                    title=title, url=href, source=self.source_name
+                                )
+                            )
+                            seen_urls.add(href)
 
         return items
 
