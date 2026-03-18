@@ -91,3 +91,28 @@ class CollectResponse(BaseModel):
     items_by_source: Dict[str, List[Dict[str, Any]]]  # 按源分组的结果
     total_items: int  # 总数据条数
     errors: Optional[List[str]] = None  # 错误信息列表
+
+
+class PushRequest(BaseModel):
+    """
+    推送请求数据模型
+
+    作用：验证 POST /push 接口的请求体
+    """
+
+    items: List[Dict[str, Any]]  # 要推送的数据列表
+    targets: List[str]  # 目标列表
+
+
+class PushResponse(BaseModel):
+    """
+    推送响应数据模型
+
+    作用：格式化 POST /push 接口的响应
+    """
+
+    status: str  # 状态：success / failed
+    target_type: str  # 推送类型：all / batch
+    success_count: int  # 成功推送数
+    failed_count: int  # 失败数
+    errors: Optional[List[str]] = None  # 错误信息列表
