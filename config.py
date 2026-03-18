@@ -28,7 +28,7 @@ class Settings:
     browser_headless: bool = True  # 浏览器无头模式（不显示窗口）
     browser_timeout: float = 30.0  # 浏览器请求超时时间（秒）
     browser_wait_until: str = (
-        "networkidle"  # 等待策略（load/domcontentloaded/networkidle）
+        "load"  # 等待策略（load/domcontentloaded/networkidle）
     )
     browser_wait_time: int = 0  # 额外等待时间（秒），等待动态内容
     max_concurrency: int = 3  # 最大并发页数（浏览器资源占用较大）
