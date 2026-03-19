@@ -7,7 +7,7 @@
 """
 
 import asyncio
-from typing import Optional, List
+from typing import Dict, Optional, List
 from parsel import Selector
 from playwright.async_api import async_playwright
 from config import settings
@@ -97,9 +97,9 @@ class BrowserClient:
 
     async def get_batch(
         self,
-        urls: List[str],
+        source_urls: Dict[str, str],
         concurrency: Optional[int] = None,
-    ) -> List[Selector]:
+    ) -> Dict[str, Selector]:
         """
         批量并发获取多个网页
 
@@ -108,22 +108,27 @@ class BrowserClient:
         - 使用 asyncio.gather 并发执行所有请求
 
         Args:
-            urls: 要请求的 URL 列表
+            source_urls: 数据源字典，格式为 {数据源名称: URL}
             concurrency: 最大并发页数，默认使用 settings.max_concurrency
 
         Returns:
-            List[Selector]: Selector 对象列表，与输入 URL 顺序对应
+            Dict[str, Selector]: 结果字典，格式为 {数据源名称: Selector}
         """
         concurrency = concurrency or settings.max_concurrency
         semaphore = asyncio.Semaphore(concurrency)
 
-        async def fetch_with_limit(url: str) -> Selector:
+        async def fetch_with_limit(source: str, url: str) -> Dict[str, Selector]:
             """在信号量控制下获取单个网页"""
             async with semaphore:
-                return await self.get(url)
+                return {source: await self.get(url)}
 
-        selectors = await asyncio.gather(*[fetch_with_limit(url) for url in urls])
-        return selectors
+        return {
+            k: v
+            for result in await asyncio.gather(
+                *(fetch_with_limit(k, url) for k, url in source_urls.items())
+            )
+            for k, v in result.items()
+        }
 
     async def close(self):
         """
