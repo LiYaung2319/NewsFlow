@@ -6,24 +6,21 @@
 - ParsedItem: 表示一条解析后的新闻数据
 - CollectRequest: 采集请求模型
 - CollectResponse: 采集响应模型
-
-特点：
-- ParsedItem 使用 @dataclass 装饰器
-- CollectRequest 和 CollectResponse 使用 Pydantic BaseModel（用于 FastAPI 验证）
-- 提供序列化方法（to_dict、to_json）
+- PushRequest: 推送请求模型
+- PushResponse: 推送响应模型
 """
 
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
-import json
 from pydantic import BaseModel
 
 
 @dataclass
 class ParsedItem:
     """
-    解析后的新闻条目数据类
+    解析后的新闻条目
 
+    统一不同来源的新闻数据格式
     作用：统一不同来源的新闻数据格式
 
     字段说明：
@@ -36,17 +33,10 @@ class ParsedItem:
     title: str
     url: str
     source: str
-    text: Optional[str] = None
+    text: Optional[str] = None  # 预留字段
 
     def to_dict(self) -> Dict[str, Any]:
-        """
-        转换为字典
-
-        作用：用于 API 响应或数据传输
-
-        返回：
-        Dict: 包含 title、url、source 的字典（text 为空时不包含）
-        """
+        """转换为字典"""
         result = {
             "title": self.title,
             "url": self.url,
@@ -55,17 +45,6 @@ class ParsedItem:
         if self.text:
             result["text"] = self.text
         return result
-
-    def to_json(self) -> str:
-        """
-        转换为 JSON 字符串
-
-        作用：用于日志记录或调试
-
-        返回：
-        str: JSON 格式的字符串
-        """
-        return json.dumps(self.to_dict(), ensure_ascii=False)
 
 
 class CollectRequest(BaseModel):
@@ -100,7 +79,7 @@ class PushRequest(BaseModel):
     作用：验证 POST /push 接口的请求体
     """
 
-    items: List[Dict[str, Any]]  # 要推送的数据列表
+    items: Dict[str, List[Dict[str, Any]]]  # 要推送的数据列表
     targets: List[str]  # 目标列表
 
 

@@ -98,7 +98,7 @@ class SinaParser(BaseParser):
         items = []
 
         # ==================== 解析热点新闻区块 ====================
-        # 获取热点新闻列表（前10条）
+        # 获取热点新闻列表
         hot_list = selector.xpath(
             '//div[contains(@class, "blk_card")]//ul[contains(@class, "uni-blk-list") and contains(@class, "list-a")]/li/a'
         )
@@ -331,4 +331,4 @@ SOURCES: Dict[str, Dict[str, Any]] = {
 
 # SOURCES_KEYS：所有可用数据源的名称列表
 # 方便快速获取可用源列表
-SOURCES_KEYS: list = list(SOURCES.keys())  # ["sina", "163", "tencent"]
+SOURCES_KEYS: List[str] = list(SOURCES.keys())  # ["sina", "163", "tencent"]
