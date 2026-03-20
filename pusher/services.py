@@ -107,5 +107,8 @@ def process_data(items_dict: Dict[str, List[Dict[str, Any]]]) -> List[str]:
             title = item.get("title", "")
             url = item.get("url", "")
             content += f"\n- [{title}]({url})"
+            if len(content) > 1500:
+                items_list.append(content)
+                content = f"# {source} 资讯"
         items_list.append(content)
     return items_list

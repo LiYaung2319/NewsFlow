@@ -147,30 +147,22 @@ class NeteaseParser(BaseParser):
     网易新闻解析器
 
     解析规则：
-    - 优先从 news_df_yw 或 ns_area 区块提取链接
-    - 备选方案：全网页搜索符合条件的链接
+    从 news_df_yw 或 ns_area 区块提取链接
     """
 
     source_name: str = "163"
 
     def parse_list(self, selector: Selector) -> List[ParsedItem]:
-        """
-        解析网易新闻首页
-
-        特点：使用多层 fallback 策略，提高解析成功率
-        """
         items = []
 
-        # ==================== 策略1：从主新闻区块提取 ====================
-        # 优先查找 news_df_yw 区块
+        # 查找 news_df_yw 区块
         containers = selector.xpath('//div[contains(@class, "news_df_yw")]')
-        # 如果找不到，查找 ns_area 区块
-        if not containers:
-            containers = selector.xpath('//div[@class="ns_area"]')
 
         # 遍历每个容器，提取链接
         for container in containers:
-            all_links = container.xpath(".//a[@href]")  # . 表示在当前容器内查找
+            all_links = container.xpath(
+                './/div[contains(@class, "mod_guidance_news") or contains(@class, "clearfix")]//a[@href]'
+            )  # . 表示在当前容器内查找
             for a in all_links:
                 href = a.xpath("@href").get()
                 title = a.xpath("string(.)").get()  # string() 获取节点的全部文本
@@ -178,20 +170,6 @@ class NeteaseParser(BaseParser):
                 if href and title and href.startswith("http"):
                     title = title.strip()
                     if title:  # 再次确认标题不为空
-                        items.append(ParsedItem(title=title, url=href, source="163"))
-
-        # ==================== 策略2：全网页搜索（备选）====================
-        # 如果策略1没有结果，从全网页搜索符合条件的链接
-        if not items:
-            all_links = selector.xpath("//a[@href]")
-            for a in all_links:
-                href = a.xpath("@href").get()
-                title = a.xpath("string(.)").get()
-
-                if href and title and href.startswith("http"):
-                    title = title.strip()
-                    # 额外过滤：标题长度大于5，且链接包含 163.com
-                    if title and len(title) > 5 and "163.com" in href:
                         items.append(ParsedItem(title=title, url=href, source="163"))
 
         return items
