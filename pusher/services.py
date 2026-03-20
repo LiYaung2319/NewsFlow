@@ -71,8 +71,9 @@ async def push(request: PushRequest):
             total_success += result["success"]
             total_failed += result["failed"]
 
-            if result["failed"] > 0:
-                errors.append(f"{target} 推送失败 {result['failed']} 条")
+            if result.get("errors"):
+                for error in result["errors"]:
+                    errors.append(f"{target} 推送失败: {error}")
         except Exception as e:
             total_failed += len(request.items)
             errors.append(f"{target} 推送异常: {str(e)}")

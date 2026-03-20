@@ -13,7 +13,7 @@ SENDERS：推送器注册表，按平台管理配置和实例
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple, Optional
 import os
 import httpx
 
@@ -24,8 +24,8 @@ class BaseSender(ABC):
     platform: str = "base"
 
     @abstractmethod
-    async def send(self, item: str) -> bool:
-        """推送单条消息"""
+    async def send(self, item: str) -> Tuple[bool, Optional[str]]:
+        """推送单条消息，返回 (是否成功, 错误信息)"""
         pass
 
     @abstractmethod
@@ -53,7 +53,7 @@ class WeChatSender(BaseSender):
         """
         self.webhook_url = webhook_url
 
-    async def send(self, item: str) -> bool:
+    async def send(self, item: str) -> Tuple[bool, Optional[str]]:
         """
         推送单条消息
 
@@ -66,31 +66,41 @@ class WeChatSender(BaseSender):
         payload = {"msgtype": "markdown_v2", "markdown_v2": {"content": item}}
         headers = {"User-Agent": "NewsFlow-Pusher/1.0"}
 
-        async with httpx.AsyncClient(headers=headers, timeout=10.0) as client:
-            response = await client.post(self.webhook_url, json=payload)
-            data = response.json()
+        try:
+            async with httpx.AsyncClient(headers=headers, timeout=10.0) as client:
+                response = await client.post(self.webhook_url, json=payload)
+                data = response.json()
 
-        return data.get("errcode") == 0
+            if data.get("errcode") == 0:
+                return True, None
+            else:
+                return (
+                    False,
+                    f"errcode={data.get('errcode')}, errmsg={data.get('errmsg')}",
+                )
+        except Exception as e:
+            return False, f"出现意外错误: {e}"
 
-    async def send_batch(self, items: List[str]) -> Dict[str, int]:
+    async def send_batch(self, items: List[str]) -> Dict[str, Any]:
         """
         批量推送消息
 
         Returns:
-            Dict[str, int]: {"success": 成功数, "failed": 失败数}
+            Dict[str, int]: {"success": 成功数, "failed": 失败数, "errors": 错误列表}
         """
         success, failed = 0, 0
+        errors = []
 
         for item in items:
-            try:
-                if await self.send(item):
-                    success += 1
-                else:
-                    failed += 1
-            except httpx.RequestError:
+            ok, error = await self.send(item)
+            if ok:
+                success += 1
+            else:
                 failed += 1
+                if error:
+                    errors.append(error)
 
-        return {"success": success, "failed": failed}
+        return {"success": success, "failed": failed, "errors": errors}
 
     def validate_config(self) -> bool:
         """验证 Webhook 地址格式"""

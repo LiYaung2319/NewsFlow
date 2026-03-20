@@ -7,7 +7,7 @@
 """
 
 import asyncio
-from typing import Dict, Optional, List
+from typing import Dict, List, Optional, Tuple
 from parsel import Selector
 from playwright.async_api import async_playwright
 from config import settings
@@ -99,7 +99,7 @@ class BrowserClient:
         self,
         source_urls: Dict[str, str],
         concurrency: Optional[int] = None,
-    ) -> tuple[Dict[str, Selector], List[str]]:
+    ) -> Tuple[Dict[str, Selector], List[str]]:
         """
         批量并发获取多个网页
 
@@ -122,7 +122,7 @@ class BrowserClient:
 
         async def fetch_with_limit(
             source: str, url: str
-        ) -> tuple[str, Optional[Selector], Optional[str]]:
+        ) -> Tuple[str, Optional[Selector], Optional[str]]:
             async with semaphore:
                 try:
                     selector = await self.get(url)

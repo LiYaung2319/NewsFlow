@@ -15,7 +15,7 @@ POST /collect: 执行数据采集
 外部请求 → 路由 → 创建客户端 → 判断采集策略 → 执行采集 → 格式化响应 → 返回
 """
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from fastapi import APIRouter
 from parsel import Selector
 from collector.browser_client import BrowserClient
@@ -54,7 +54,7 @@ async def health_check():
 async def _collect_single(
     client: BrowserClient,
     source: str,
-) -> tuple[Dict[str, List[Dict]], List[str]]:
+) -> Tuple[Dict[str, List[Dict]], List[str]]:
     """
     串行访问：采集单个数据源
 
@@ -91,7 +91,7 @@ async def _collect_batch(
     client: BrowserClient,
     source_urls: Dict[str, str],
     concurrency: Optional[int],
-) -> tuple[Dict[str, List[Dict]], List[str]]:
+) -> Tuple[Dict[str, List[Dict]], List[str]]:
     """
     并行访问：批量采集多个数据源
 
@@ -136,7 +136,7 @@ def _parse_and_validate(
     selector: Selector,
     parser,
     source: str,
-) -> tuple[List[Dict], Optional[str]]:
+) -> Tuple[List[Dict], Optional[str]]:
     """
     解析网页并验证数据
 
