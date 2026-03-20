@@ -99,36 +99,50 @@ class BrowserClient:
         self,
         source_urls: Dict[str, str],
         concurrency: Optional[int] = None,
-    ) -> Dict[str, Selector]:
+    ) -> tuple[Dict[str, Selector], List[str]]:
         """
         批量并发获取多个网页
 
         原理：
         - 使用信号量控制并发数，避免过多页面导致资源耗尽
         - 使用 asyncio.gather 并发执行所有请求
+        - 每个协程内部捕获异常，单源失败不影响其他源
 
         Args:
             source_urls: 数据源字典，格式为 {数据源名称: URL}
             concurrency: 最大并发页数，默认使用 settings.max_concurrency
 
         Returns:
-            Dict[str, Selector]: 结果字典，格式为 {数据源名称: Selector}
+            Tuple[Dict[str, Selector], List[str]]:
+                - selectors: 结果字典，格式为 {数据源名称: Selector}
+                - errors: 错误信息列表
         """
         concurrency = concurrency or settings.max_concurrency
         semaphore = asyncio.Semaphore(concurrency)
 
-        async def fetch_with_limit(source: str, url: str) -> Dict[str, Selector]:
-            """在信号量控制下获取单个网页"""
+        async def fetch_with_limit(
+            source: str, url: str
+        ) -> tuple[str, Optional[Selector], Optional[str]]:
             async with semaphore:
-                return {source: await self.get(url)}
+                try:
+                    selector = await self.get(url)
+                    return source, selector, None
+                except Exception as e:
+                    return source, None, str(e)
 
-        return {
-            k: v
-            for result in await asyncio.gather(
-                *(fetch_with_limit(k, url) for k, url in source_urls.items())
-            )
-            for k, v in result.items()
-        }
+        results = await asyncio.gather(
+            *(fetch_with_limit(k, url) for k, url in source_urls.items())
+        )
+
+        selectors = {}
+        errors = []
+        for source, selector, error in results:
+            if error:
+                errors.append(f"{source} 采集失败: {error}")
+            else:
+                selectors[source] = selector
+
+        return selectors, errors
 
     async def close(self):
         """

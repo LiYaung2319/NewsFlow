@@ -97,7 +97,7 @@ async def _collect_batch(
 
     流程：
     1. 将 source_urls 字典传给 client.get_batch 并发请求
-    2. 遍历返回的 {source: Selector} 字典
+    2. 遍历返回的 selectors 和 errors
     3. 对每个 source 获取对应解析器并解析数据
     4. 汇总所有数据源结果
 
@@ -111,9 +111,9 @@ async def _collect_batch(
             - items_by_source: 按数据源分组的结果
             - errors: 错误信息列表
     """
-    selectors = await client.get_batch(source_urls, concurrency)
+    selectors, batch_errors = await client.get_batch(source_urls, concurrency)
     items_by_source = {}
-    errors = []
+    errors = list(batch_errors)
 
     for source, selector in selectors.items():
         if source not in SOURCES:

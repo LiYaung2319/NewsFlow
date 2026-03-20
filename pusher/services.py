@@ -59,11 +59,11 @@ async def push(request: PushRequest):
             errors.append(f"推送目标不存在: {target}")
             continue
 
-        sender = SENDERS[target]["sender"]
-
         if not SENDERS[target].get("enabled", True):
             errors.append(f"{target} 未启用")
             continue
+
+        sender = SENDERS[target]["sender"]
 
         try:
             items_list = process_data(request.items)
