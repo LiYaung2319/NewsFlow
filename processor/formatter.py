@@ -70,7 +70,8 @@ class CollectFormatter(BaseFormatter):
                 if len(content) > 1500:
                     items_list.append(content)
                     content = f"# {source} 资讯"
-            items_list.append(content)
+            if content != f"# {source} 资讯":
+                items_list.append(content)
         return items_list
 
 
