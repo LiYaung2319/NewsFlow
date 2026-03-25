@@ -17,6 +17,7 @@ if sys.platform == "win32":
 from fastapi import FastAPI
 from collector.services import router as collect_router
 from pusher.services import router as pusher_router
+from processor.services import router as processor_router
 from config import settings
 
 
@@ -39,6 +40,8 @@ def create_app() -> FastAPI:
     app.include_router(collect_router)
     # 注册推送服务路由
     app.include_router(pusher_router)
+    # 注册处理器服务路由
+    app.include_router(processor_router)
 
     return app
 

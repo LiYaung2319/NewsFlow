@@ -79,7 +79,7 @@ class PushRequest(BaseModel):
     作用：验证 POST /push 接口的请求体
     """
 
-    items: Dict[str, List[Dict[str, Any]]]  # 要推送的数据列表
+    items: List[str]  # 格式化后的字符串列表，对标 FormatResponse.messages
     targets: List[str]  # 目标列表
 
 
@@ -94,4 +94,29 @@ class PushResponse(BaseModel):
     target_type: str  # 推送类型：all / batch
     success_count: int  # 成功推送数
     failed_count: int  # 失败数
+    errors: Optional[List[str]] = None  # 错误信息列表
+
+
+class FormatRequest(BaseModel):
+    """
+    格式化请求数据模型
+
+    作用：验证 POST /processor/format 接口的请求体
+
+    格式：[{format_type: data}, ...]
+    例如：单个 [{"collect": {...}}]，多个 [{"collect": {...}}, {"collect": {...}}]
+    """
+
+    data: List[Dict[str, Any]]  # 格式化请求列表
+
+
+class FormatResponse(BaseModel):
+    """
+    格式化响应数据模型
+
+    作用：格式化 POST /processor/format 接口的响应
+    """
+
+    status: str  # 状态：success / failed
+    messages: List[str]  # 格式化后的字符串列表
     errors: Optional[List[str]] = None  # 错误信息列表

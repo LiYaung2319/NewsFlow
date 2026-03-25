@@ -11,7 +11,6 @@ POST /push: 执行消息推送
 """
 
 from fastapi import APIRouter
-from typing import List, Dict, Any
 from schemas import PushRequest, PushResponse
 from pusher.senders import SENDERS, SENDERS_KEYS
 
@@ -36,7 +35,7 @@ async def push(request: PushRequest):
     核心推送接口
 
     请求参数：
-        items: 要推送的数据，按数据源分组
+        items: 格式化后的字符串列表，对标 FormatResponse.messages
         targets: 目标列表，"all" 或空列表表示推送到全部
 
     响应：
@@ -66,8 +65,7 @@ async def push(request: PushRequest):
         sender = SENDERS[target]["sender"]
 
         try:
-            items_list = process_data(request.items)
-            result = await sender.send_batch(items_list)
+            result = await sender.send_batch(request.items)
             total_success += result["success"]
             total_failed += result["failed"]
 
@@ -86,29 +84,3 @@ async def push(request: PushRequest):
         failed_count=total_failed,
         errors=errors if errors else None,
     )
-
-
-def process_data(items_dict: Dict[str, List[Dict[str, Any]]]) -> List[str]:
-    """
-    格式化为 Markdown 消息
-
-    将采集数据转换为 Markdown 格式字符串列表
-
-    Args:
-        items_dict: 按数据源分组的新闻数据
-
-    Returns:
-        List[str]: Markdown 格式字符串列表
-    """
-    items_list = []
-    for source, items in items_dict.items():
-        content = f"# {source} 资讯"
-        for item in items:
-            title = item.get("title", "")
-            url = item.get("url", "")
-            content += f"\n- [{title}]({url})"
-            if len(content) > 1500:
-                items_list.append(content)
-                content = f"# {source} 资讯"
-        items_list.append(content)
-    return items_list
