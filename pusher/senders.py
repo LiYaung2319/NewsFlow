@@ -5,6 +5,7 @@
 设计模式：策略模式
 - BaseSender：推送器抽象基类
 - WeChatSender：企业微信推送器
+- WPSSender：WPS协作推送器
 - DingTalkSender：钉钉推送器（预留）
 - EmailSender：邮件推送器（预留）
 - QQSender：QQ推送器（预留）
@@ -110,12 +111,93 @@ class WeChatSender(BaseSender):
         )
 
 
+class WPSSender(BaseSender):
+    """WPS协作推送器"""
+
+    platform: str = "wps"
+
+    def __init__(self, webhook_url: str):
+        """
+        初始化WPS协作推送器
+
+        Args:
+            webhook_url: WPS协作 Webhook 地址
+
+        """
+        self.webhook_url = webhook_url
+
+    async def send(self, item: str) -> Tuple[bool, Optional[str]]:
+        """
+        推送单条消息
+
+        Args:
+            item: Markdown 格式消息
+
+        Returns:
+            bool: True 表示推送成功
+        """
+        payload = {"msgtype": "markdown", "markdown": {"text": item}}
+        headers = {
+            "User-Agent": "NewsFlow-Pusher/1.0",
+            "Content-Type": "application/json",
+        }
+
+        try:
+            async with httpx.AsyncClient(headers=headers, timeout=10.0) as client:
+                response = await client.post(self.webhook_url, json=payload)
+                data = response.json()
+
+            if data.get("result") == "ok":
+                return True, None
+            else:
+                return (
+                    False,
+                    f"code={data.get('code')}, msg={data.get('msg')}",
+                )
+        except Exception as e:
+            return False, f"出现意外错误: {e}"
+
+    async def send_batch(self, items: List[str]) -> Dict[str, Any]:
+        """
+        批量推送消息
+
+        Returns:
+            Dict[str, int]: {"success": 成功数, "failed": 失败数, "errors": 错误列表}
+        """
+        success, failed = 0, 0
+        errors = []
+
+        for item in items:
+            ok, error = await self.send(item)
+            if ok:
+                success += 1
+            else:
+                failed += 1
+                if error:
+                    errors.append(error)
+
+        return {"success": success, "failed": failed, "errors": errors}
+
+    def validate_config(self) -> bool:
+        """验证 webhook_url 格式"""
+        return bool(
+            self.webhook_url
+            and self.webhook_url.startswith("https://xz.wps.cn/api/v1/webhook/send")
+        )
+
+
 # ==================== 推送器注册表 ====================
 
 SENDERS: Dict[str, Dict[str, Any]] = {
     "wechat": {
         "sender": WeChatSender(webhook_url=os.environ.get("WECHAT_WEBHOOK_URL", "")),
         "enabled": bool(os.environ.get("WECHAT_WEBHOOK_URL")),
+    },
+    "wps": {
+        "sender": WPSSender(
+            webhook_url=os.environ.get("WPS_WEBHOOK_URL", ""),
+        ),
+        "enabled": bool(os.environ.get("WPS_WEBHOOK_URL")),
     },
 }
 
