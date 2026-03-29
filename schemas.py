@@ -91,7 +91,7 @@ class PushResponse(BaseModel):
     """
 
     status: str  # 状态：success / failed
-    target_type: str  # 推送类型：all / batch
+    target_type: str  # 推送类型：single / batch
     success_count: int  # 成功推送数
     failed_count: int  # 失败数
     errors: Optional[List[str]] = None  # 错误信息列表
