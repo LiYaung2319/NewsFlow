@@ -67,7 +67,7 @@ class CollectFormatter(BaseFormatter):
                 title = item.get("title", "")
                 url = item.get("url", "")
                 content += f"\n- [{title}]({url})"
-                if len(content) > 1500:
+                if len(content) > 2000:
                     items_list.append(content)
                     content = f"# {source} 资讯"
             if content != f"# {source} 资讯":
