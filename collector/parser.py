@@ -18,6 +18,7 @@ from abc import ABC, abstractmethod
 from parsel import Selector
 from typing import List, Dict, Any
 from schemas import ParsedItem
+from urllib.parse import urljoin
 
 
 class BaseParser(ABC):
@@ -251,6 +252,60 @@ class TencentParser(BaseParser):
         pass
 
 
+class AihotParser(BaseParser):
+    """AIHOT 新闻解析器，支持热点榜和 AI 日报两个板块"""
+
+    source_name: str = "aihot"
+
+    def __init__(self, section: str):
+        self.section = section
+        self.source_name = f"aihot_{section}"
+
+    def parse_list(self, selector: Selector) -> List[ParsedItem]:
+        """解析指定板块的标题和链接"""
+        if self.section == "hot":
+            links = selector.xpath(
+                "//section[@aria-labelledby='hot-day-title']"
+                "//a[contains(concat(' ', normalize-space(@class), ' '), ' hot-rank-link ')"
+                " and starts-with(@href, '/story/')][@href]"
+            )
+        elif self.section == "daily":
+            links = selector.xpath(
+                "//div[contains(concat(' ', normalize-space(@class), ' '), ' daily-report-page ')]"
+                "//article[contains(concat(' ', normalize-space(@class), ' '), ' daily-paper ')"
+                " and contains(concat(' ', normalize-space(@class), ' '), ' daily-report ')]"
+                "//div[contains(concat(' ', normalize-space(@class), ' '), ' daily-section-articles ')]"
+                "//article[contains(concat(' ', normalize-space(@class), ' '), ' daily-article ')]"
+                "//h3[contains(concat(' ', normalize-space(@class), ' '), ' daily-article-title ')]"
+                "//a[starts-with(@href, '/items/')][@href]"
+            )
+        else:
+            return []
+
+        items = []
+        seen_urls = set()
+        for link in links:
+            relative_url = link.xpath("@href").get()
+            title = link.xpath("normalize-space(string(.))").get()
+            if not relative_url or not title:
+                continue
+
+            url = urljoin("https://aihot.virxact.com/", relative_url)
+            if url in seen_urls:
+                continue
+
+            items.append(
+                ParsedItem(title=title, url=url, source=self.source_name)
+            )
+            seen_urls.add(url)
+
+        return items
+
+    def parse_detail(self, selector: Selector) -> ParsedItem:
+        """AIHOT 详情页解析预留接口"""
+        pass
+
+
 class ArticleParser(BaseParser):
     """
     通用文章解析器
@@ -292,6 +347,7 @@ class ArticleParser(BaseParser):
 
 # SOURCES：数据源配置字典
 # 格式：{"源名称": {"parser": 解析器类, "home_url": 主页URL}}
+# 复合信息源可使用 sections 配置多个实际访问页面
 SOURCES: Dict[str, Dict[str, Any]] = {
     "sina": {
         "parser": SinaParser(),
@@ -305,8 +361,20 @@ SOURCES: Dict[str, Dict[str, Any]] = {
         "parser": TencentParser(),
         "home_url": "https://news.qq.com/",  # 腾讯新闻主页
     },
+    "aihot": {
+        "sections": {
+            "aihot_hot": {
+                "parser": AihotParser(section="hot"),
+                "home_url": "https://aihot.virxact.com/hot",
+            },
+            "aihot_daily": {
+                "parser": AihotParser(section="daily"),
+                "home_url": "https://aihot.virxact.com/daily",
+            },
+        },
+    },
 }
 
 # SOURCES_KEYS：所有可用数据源的名称列表
 # 方便快速获取可用源列表
-SOURCES_KEYS: List[str] = list(SOURCES.keys())  # ["sina", "163", "tencent"]
+SOURCES_KEYS: List[str] = list(SOURCES.keys())  # ["sina", "163", "tencent", "aihot"]

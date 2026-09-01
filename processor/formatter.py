@@ -11,6 +11,12 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, List
 
 
+SOURCE_TITLES = {
+    "aihot_hot": "AI 热点榜",
+    "aihot_daily": "AI 日报",
+}
+
+
 class BaseFormatter(ABC):
     """
     格式化器基类
@@ -62,15 +68,16 @@ class CollectFormatter(BaseFormatter):
         """
         items_list = []
         for source, items in data.items():
-            content = f"# {source} 资讯"
+            source_title = SOURCE_TITLES.get(source, f"{source} 资讯")
+            content = f"# {source_title}"
             for item in items:
-                title = item.get("title", "")
+                item_title = item.get("title", "")
                 url = item.get("url", "")
-                content += f"\n- [{title}]({url})"
+                content += f"\n- [{item_title}]({url})"
                 if len(content) > 2000:
                     items_list.append(content)
-                    content = f"# {source} 资讯"
-            if content != f"# {source} 资讯":
+                    content = f"# {source_title}"
+            if content != f"# {source_title}":
                 items_list.append(content)
         return items_list
 

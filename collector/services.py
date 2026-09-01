@@ -89,21 +89,21 @@ async def _collect_single(
 
 async def _collect_batch(
     client: BrowserClient,
-    source_urls: Dict[str, str],
+    source_configs: Dict[str, Dict],
     concurrency: Optional[int],
 ) -> Tuple[Dict[str, List[Dict]], List[str]]:
     """
     并行访问：批量采集多个数据源
 
     流程：
-    1. 将 source_urls 字典传给 client.get_batch 并发请求
+    1. 将 source_configs 中的页面传给 client.get_batch 并发请求
     2. 遍历返回的 selectors 和 errors
     3. 对每个 source 获取对应解析器并解析数据
     4. 汇总所有数据源结果
 
     Args:
         client: 浏览器客户端实例
-        source_urls: 数据源字典，格式为 {数据源名称: URL}
+        source_configs: 页面配置字典，格式为 {页面名称: 配置}
         concurrency: 最大并发数
 
     Returns:
@@ -111,17 +111,15 @@ async def _collect_batch(
             - items_by_source: 按数据源分组的结果
             - errors: 错误信息列表
     """
+    source_urls = {
+        source: config["home_url"] for source, config in source_configs.items()
+    }
     selectors, batch_errors = await client.get_batch(source_urls, concurrency)
     items_by_source = {}
     errors = list(batch_errors)
 
     for source, selector in selectors.items():
-        if source not in SOURCES:
-            errors.append(f"数据源配置不存在: {source}")
-            items_by_source[source] = []
-            continue
-
-        parser = SOURCES[source]["parser"]
+        parser = source_configs[source]["parser"]
         items, error = _parse_and_validate(selector, parser, source)
 
         if error:
@@ -130,6 +128,23 @@ async def _collect_batch(
         items_by_source[source] = items
 
     return items_by_source, errors
+
+
+def _expand_source_configs(sources: List[str]) -> Dict[str, Dict]:
+    """将逻辑信息源展开为实际需要访问的页面配置。"""
+    source_configs = {}
+    for source in sources:
+        config = SOURCES.get(source)
+        if not config:
+            continue
+
+        sections = config.get("sections")
+        if sections:
+            source_configs.update(sections)
+        else:
+            source_configs[source] = config
+
+    return source_configs
 
 
 def _parse_and_validate(
@@ -186,17 +201,19 @@ async def collect(request: CollectRequest):
         else:
             sources_to_collect = request.sources
 
-        if len(sources_to_collect) == 1:
-            source = sources_to_collect[0]
+        source = sources_to_collect[0] if len(sources_to_collect) == 1 else None
+        is_composite_source = (
+            source in SOURCES and "sections" in SOURCES[source]
+            if source
+            else False
+        )
+
+        if len(sources_to_collect) == 1 and not is_composite_source:
             items_by_source, errors = await _collect_single(client, source)
         else:
-            source_urls = {
-                source: SOURCES[source]["home_url"]
-                for source in sources_to_collect
-                if source in SOURCES
-            }
+            source_configs = _expand_source_configs(sources_to_collect)
             items_by_source, errors = await _collect_batch(
-                client, source_urls, request.concurrency
+                client, source_configs, request.concurrency
             )
 
         total_items = sum(len(items) for items in items_by_source.values())

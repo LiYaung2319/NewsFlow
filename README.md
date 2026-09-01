@@ -1,187 +1,288 @@
 # NewsFlow
 
-NewsFlow 是一个轻量级新闻数据采集与推送服务框架，基于微服务架构设计，支持从多个主流新闻源采集数据并推送至多种目标平台。
+NewsFlow 是一个轻量级新闻采集、格式化和 Webhook 推送服务。项目采用模块化单体架构：采集、处理和推送功能运行在同一个 FastAPI/Uvicorn 进程中，通过 HTTP 接口提供能力。
 
-## 架构概览
+项目本身不包含数据库、消息队列或定时任务。完整的新闻工作流由外部调用方按顺序编排：
 
-NewsFlow 采用分层架构设计，整体分为四个层次：
+```text
+POST /collect
+      |
+      v
+采集结果 items_by_source
+      |
+      v
+POST /processor/format
+      |
+      v
+Markdown 消息列表 messages
+      |
+      v
+POST /push
+      |
+      v
+企业微信 / WPS Webhook
+```
+
+## 架构
+
+```text
+main.py
+├── collector/
+│   ├── services.py        采集 API 和采集流程编排
+│   ├── browser_client.py  Playwright 异步浏览器客户端
+│   └── parser.py          信息源解析器和注册表
+├── processor/
+│   ├── services.py        格式化 API
+│   ├── formatter.py       Markdown 格式化器
+│   └── __init__.py
+├── pusher/
+│   ├── services.py        推送 API 和推送目标编排
+│   └── senders.py         各平台 Webhook 推送器
+├── schemas.py             Pydantic 请求/响应模型和 ParsedItem
+└── config.py              服务及浏览器默认配置
+```
 
 ### 接入层
 
-FastAPI 应用入口 (`main.py`)，负责路由注册和服务启动。
+[`main.py`](main.py) 创建 FastAPI 应用，并注册以下三个路由组：
 
-### 服务层
+- `/collect/*`：新闻采集
+- `/processor/*`：数据格式化
+- `/push/*`：消息推送
 
-- **采集服务** (`/collect/*`)：提供新闻数据采集能力
-- **数据处理服务** (`/processor/*`)：提供数据格式化能力
-- **推送服务** (`/push/*`)：提供消息推送能力
+### 采集层
 
-### 核心组件层
+采集服务使用 [`BrowserClient`](collector/browser_client.py) 通过 Playwright Chromium 获取页面内容，再交给 [`BaseParser`](collector/parser.py) 的具体实现解析。
 
-| 组件            | 职责                                                 |
-| --------------- | ---------------------------------------------------- |
-| `BrowserClient` | 基于 Playwright 的无头浏览器，渲染动态网页内容       |
-| `Parser`        | 策略模式实现的网页解析器，提取结构化数据             |
-| `BaseFormatter` | 策略模式实现的格式化器，将数据转换为 Markdown 字符串 |
-| `BaseSender`    | 策略模式实现的推送器，对接各平台 Webhook             |
+- 单个普通信息源使用串行采集
+- 多个信息源使用 `asyncio.gather()` 并发采集
+- 使用信号量限制浏览器页面并发数
+- 单个页面失败时保留其它页面的采集结果
 
-### 数据源与推送目标
+### 处理层
 
-- 数据源：Sina、163、Tencent
-- 推送目标：企业微信
+[`CollectFormatter`](processor/formatter.py) 将 `items_by_source` 转换为 Markdown 消息列表。每个结果键对应一条或多条独立消息，内容长度超过 2000 个字符时会分块。
 
+### 推送层
+
+推送服务根据目标选择对应的 [`BaseSender`](pusher/senders.py) 实现，通过 HTTPX 调用平台 Webhook。
+
+- 单个目标：目标内部按消息顺序推送
+- 多个目标：不同目标之间并发推送
+
+## 信息源
+
+当前共有 4 个逻辑信息源：
+
+| 标识 | 网站 | 采集内容 |
+| --- | --- | --- |
+| `sina` | 新浪新闻 | 新闻首页列表 |
+| `163` | 网易新闻 | 网易首页新闻列表 |
+| `tencent` | 腾讯新闻 | 腾讯新闻首页列表 |
+| `aihot` | [AIHOT](https://aihot.virxact.com/) | AI 热点榜和今日 AI 日报 |
+
+### AIHOT 复合信息源
+
+`aihot` 对外是一个信息源，但实际会采集两个页面：
+
+| 内部结果键 | 页面 | 链接类型 | 展示标题 |
+| --- | --- | --- | --- |
+| `aihot_hot` | `/hot` | `/story/...` | AI 热点榜 |
+| `aihot_daily` | `/daily` | `/items/...` | AI 日报 |
+
+`/hot` 只提取当前热点榜事件；`/daily` 只提取当日日报正文事件，不会提取历史日报导航链接。两个板块分别返回、分别格式化、分别推送。
+
+信息源解析器和注册表位于 [`collector/parser.py`](collector/parser.py)：
+
+- `SinaParser`
+- `NeteaseParser`
+- `TencentParser`
+- `AihotParser(section="hot")`
+- `AihotParser(section="daily")`
+
+## 推送目标
+
+当前共有 2 个推送目标：
+
+| 标识 | 平台 | 环境变量 |
+| --- | --- | --- |
+| `wechat` | 企业微信机器人 Webhook | `WECHAT_WEBHOOK_URL` |
+| `wps` | WPS 协作 Webhook | `WPS_WEBHOOK_URL` |
+
+推送器注册表位于 [`pusher/senders.py`](pusher/senders.py)。没有配置对应 Webhook 时，该目标会被标记为未启用。
+
+## API
+
+### 采集服务
+
+```text
+GET  /collect/sources
+GET  /collect/health
+POST /collect
 ```
-main.py
-├── collector/
-│   ├── services.py      (REST API: /collect)
-│   ├── browser_client.py (Playwright 浏览器客户端)
-│   └── parser.py        (网页解析器: Sina/163/Tencent)
-├── processor/
-│   ├── services.py      (REST API: /processor)
-│   └── formatter.py     (格式化器: CollectFormatter)
-└── pusher/
-    ├── services.py      (REST API: /push)
-    └── senders.py        (推送器: WeChat)
+
+`POST /collect` 请求体：
+
+```json
+{
+  "sources": ["sina", "163"],
+  "concurrency": 3
+}
 ```
 
-## 核心模块
+说明：
 
-### 1. 入口模块 (`main.py`)
+- `sources` 为空或包含 `all` 时采集全部逻辑信息源
+- `concurrency` 可选；未提供时使用配置中的默认值 3
+- 请求 `aihot` 时，会同时采集 `/hot` 和 `/daily`
+- 响应中的 `total_sources` 统计逻辑信息源数量，不统计 AIHOT 的两个页面
 
-FastAPI 应用入口，注册采集和推送服务路由，提供开发模式和命令行两种启动方式。
+采集示例：
 
-### 2. 配置模块 (`config.py`)
+```bash
+curl -X POST http://localhost:23119/collect \
+  -H "Content-Type: application/json" \
+  -d '{"sources": ["aihot"]}'
+```
 
-集中管理项目配置，包括：
+响应结果中的 `items_by_source` 会包含类似结构：
 
-- 服务端口配置
-- 浏览器无头模式、超时、等待策略
-- 并发数控制
+```json
+{
+  "aihot_hot": [
+    {
+      "title": "热点标题",
+      "url": "https://aihot.virxact.com/story/...",
+      "source": "aihot_hot"
+    }
+  ],
+  "aihot_daily": [
+    {
+      "title": "日报标题",
+      "url": "https://aihot.virxact.com/items/...",
+      "source": "aihot_daily"
+    }
+  ]
+}
+```
 
-### 3. 数据模型 (`schemas.py`)
+### 处理服务
 
-定义核心数据结构：
+```text
+GET  /processor/health
+POST /processor/format
+```
 
-- `ParsedItem`: 新闻条目（标题、URL、来源）
-- `CollectRequest/CollectResponse`: 采集请求/响应
-- `FormatRequest/FormatResponse`: 格式化请求/响应
-- `PushRequest/PushResponse`: 推送请求/响应
+`POST /processor/format` 接收一个格式化任务列表。当前支持的格式化类型只有 `collect`：
 
-### 4. 采集服务层 (`collector/`)
+```bash
+curl -X POST http://localhost:23119/processor/format \
+  -H "Content-Type: application/json" \
+  -d '{"data": [{"collect": {"aihot_hot": [{"title": "热点标题", "url": "https://aihot.virxact.com/story/..."}], "aihot_daily": [{"title": "日报标题", "url": "https://aihot.virxact.com/items/..."}]}}]}'
+```
 
-| 模块                | 功能                                                           |
-| ------------------- | -------------------------------------------------------------- |
-| `services.py`       | 采集路由定义，处理串行/并行采集策略                            |
-| `browser_client.py` | 基于 Playwright 的异步浏览器客户端，支持页面渲染和批量并发获取 |
-| `parser.py`         | 策略模式实现的解析器，支持 Sina、163、Tencent 三个新闻源       |
+AIHOT 格式化后会生成两条消息，标题分别为：
 
-**采集接口：**
+```markdown
+# AI 热点榜
+...
+```
 
-- `GET /collect/sources` - 获取可用数据源列表
-- `GET /collect/health` - 健康检查
-- `POST /collect` - 执行数据采集
+```markdown
+# AI 日报
+...
+```
 
-### 5. 处理器服务层 (`processor/`)
+### 推送服务
 
-| 模块           | 功能                                           |
-| -------------- | ---------------------------------------------- |
-| `services.py`  | 格式化路由定义，支持单个/批量格式化请求        |
-| `formatter.py` | 策略模式实现的格式化器，支持 Markdown 格式转换 |
+```text
+GET  /push/targets
+GET  /push/health
+POST /push
+```
 
-**格式化接口：**
+`POST /push` 请求体：
 
-- `GET /processor/health` - 健康检查
-- `POST /processor/format` - 格式化数据为 Markdown 字符串
+```json
+{
+  "items": [
+    "# AI 热点榜\n- [热点标题](https://aihot.virxact.com/story/...)",
+    "# AI 日报\n- [日报标题](https://aihot.virxact.com/items/...)"
+  ],
+  "targets": ["wechat"]
+}
+```
 
-### 6. 推送服务层 (`pusher/`)
+说明：
 
-| 模块          | 功能                                       |
-| ------------- | ------------------------------------------ |
-| `services.py` | 推送路由定义，接收格式化后的字符串列表     |
-| `senders.py`  | 策略模式实现的推送器，支持企业微信 Webhook |
+- `targets` 为空或包含 `all` 时推送到全部已注册目标
+- 每个字符串视为一条独立消息
+- `success_count` 和 `failed_count` 按实际发送的消息数量统计
 
-**推送接口：**
+## 配置
 
-- `GET /push/targets` - 获取可用推送目标列表
-- `GET /push/health` - 健康检查
-- `POST /push` - 执行消息推送
+配置模块为 [`config.py`](config.py)，当前默认值如下：
 
-## 支持的数据源
+| 配置项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `settings.host` | `0.0.0.0` | 服务监听地址 |
+| `settings.port` | `23119` | 服务端口 |
+| `settings.browser_headless` | `True` | 是否使用无头浏览器 |
+| `settings.browser_timeout` | `60.0` | 页面访问超时时间，单位为秒 |
+| `settings.browser_wait_until` | `load` | Playwright 页面等待策略 |
+| `settings.browser_wait_time` | `0` | 页面加载后的额外等待时间，单位为秒 |
+| `settings.max_concurrency` | `3` | 默认最大并发页面数 |
 
-| 源标识    | 网站     |
-| --------- | -------- |
-| `sina`    | 新浪新闻 |
-| `163`     | 网易新闻 |
-| `tencent` | 腾讯新闻 |
+项目会通过 `python-dotenv` 加载根目录 `.env` 文件。当前 `.env` 仅用于推送 Webhook：
 
-## 支持的推送方
+```env
+WECHAT_WEBHOOK_URL=your_wechat_webhook_url
+WPS_WEBHOOK_URL=your_wps_webhook_url
+```
 
-| 推送标识 | 平台     | 配置项               |
-| -------- | -------- | -------------------- |
-| `wechat` | 企业微信 | `WECHAT_WEBHOOK_URL` |
+服务地址和浏览器配置目前由 [`config.py`](config.py) 中的默认值定义，并不会自动从环境变量读取。
 
-## 使用方式
+## 安装和运行
 
-### 1. 安装依赖
+### 安装依赖
 
 ```bash
 pip install -r requirements.txt
 playwright install chromium
 ```
 
-### 2. 配置环境变量
-
-在 `.env` 文件中配置：
-
-```env
-WECHAT_WEBHOOK_URL=your_wechat_webhook_url
-```
-
-### 3. 启动服务
-
-**开发模式：**
+### 直接运行
 
 ```bash
 python main.py
 ```
 
-**命令行模式：**
+该方式使用 `settings.host` 和 `settings.port` 启动 Uvicorn，并开启热重载。
+
+### 使用 Uvicorn
 
 ```bash
 uvicorn main:app --host 0.0.0.0 --port 23119 --reload
 ```
 
-## API 使用示例
+### Windows 脚本
 
-### 1. 采集新闻
-
-```bash
-curl -X POST http://localhost:23119/collect \
-  -H "Content-Type: application/json" \
-  -d '{"sources": ["sina", "163"]}'
+```text
+start.bat  后台启动服务，日志写入 logs/output.log 和 logs/error.log
+stop.bat   终止 python.exe 进程
 ```
 
-### 2. 格式化数据
-
-```bash
-curl -X POST http://localhost:23119/processor/format \
-  -H "Content-Type: application/json" \
-  -d '{"data": [{"collect": {"sina": [{"title": "新闻标题", "url": "https://..."}]}}]}'
-```
-
-### 3. 推送新闻
-
-```bash
-curl -X POST http://localhost:23119/push \
-  -H "Content-Type: application/json" \
-  -d '{"items": ["# sina 资讯\n- [新闻标题](https://...)"], "targets": ["wechat"]}'
-```
+`stop.bat` 会终止当前机器上所有名为 `python.exe` 的进程，请谨慎使用。
 
 ## 技术栈
 
-- **Web 框架**: FastAPI + Uvicorn
-- **浏览器自动化**: Playwright
-- **HTML 解析**: parsel
-- **数据验证**: Pydantic
-- **HTTP 客户端**: httpx
-- **配置管理**: python-dotenv
+- Python
+- FastAPI
+- Uvicorn
+- Playwright
+- parsel
+- Pydantic
+- HTTPX
+- python-dotenv
+
+当前项目未包含自动化测试、数据库、任务队列、容器配置或 CI/CD 配置。
