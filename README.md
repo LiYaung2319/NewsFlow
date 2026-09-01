@@ -56,12 +56,13 @@ main.py
 
 - 单个普通信息源使用串行采集
 - 多个信息源使用 `asyncio.gather()` 并发采集
+- 复合信息源（如 `aihot`、`CSDN`）展开后的页面使用批量采集
 - 使用信号量限制浏览器页面并发数
 - 单个页面失败时保留其它页面的采集结果
 
 ### 处理层
 
-[`CollectFormatter`](processor/formatter.py) 将 `items_by_source` 转换为 Markdown 消息列表。每个结果键对应一条或多条独立消息，内容长度超过 2000 个字符时会分块。
+[`CollectFormatter`](processor/formatter.py) 将 `items_by_source` 转换为 Markdown 消息列表。每个结果键单独生成消息，内容长度超过 2000 个字符后按条目分块；分块是在追加完整条目后判断，因此单个块可能略微超过 2000 个字符。
 
 ### 推送层
 
@@ -72,7 +73,7 @@ main.py
 
 ## 信息源
 
-当前共有 4 个逻辑信息源：
+当前共有 5 个逻辑信息源：
 
 | 标识 | 网站 | 采集内容 |
 | --- | --- | --- |
@@ -80,6 +81,7 @@ main.py
 | `163` | 网易新闻 | 网易首页新闻列表 |
 | `tencent` | 腾讯新闻 | 腾讯新闻首页列表 |
 | `aihot` | [AIHOT](https://aihot.virxact.com/) | AI 热点榜和今日 AI 日报 |
+| `CSDN` | [CSDN](https://www.csdn.net/) | 资讯头条、人工智能和 Python |
 
 ### AIHOT 复合信息源
 
@@ -99,6 +101,23 @@ main.py
 - `TencentParser`
 - `AihotParser(section="hot")`
 - `AihotParser(section="daily")`
+- `CsdnParser(section="all")`
+- `CsdnParser(section="ai")`
+- `CsdnParser(section="python")`
+
+### CSDN 复合信息源
+
+`CSDN` 对外是一个信息源，内部拆分为三个独立结果键：
+
+| 内部结果键 | 内容 | 采集方式 |
+| --- | --- | --- |
+| `CSDN_all` | 全部栏目下的资讯头条全部内容 | CSDN 首页 HTML |
+| `CSDN_ai` | 人工智能栏目按接口顺序前 10 条 | CSDN 内容接口，参数 `cate1=ai` |
+| `CSDN_python` | Python 栏目按接口顺序前 10 条 | CSDN 内容接口，参数 `cate1=python` |
+
+三个板块分别采集、分别返回、分别格式化，不会合并为一组消息。
+
+`CSDN_all` 当前从首页 `资讯头条` 区域提取顶部推荐和头条列表中的所有标题、链接；`CSDN_ai` 和 `CSDN_python` 从 CSDN 内容接口的 `extend.title`、`extend.url` 字段提取前 10 条。
 
 ## 推送目标
 
@@ -135,7 +154,9 @@ POST /collect
 - `sources` 为空或包含 `all` 时采集全部逻辑信息源
 - `concurrency` 可选；未提供时使用配置中的默认值 3
 - 请求 `aihot` 时，会同时采集 `/hot` 和 `/daily`
-- 响应中的 `total_sources` 统计逻辑信息源数量，不统计 AIHOT 的两个页面
+- 请求 `CSDN` 时，会同时采集 `CSDN_all`、`CSDN_ai` 和 `CSDN_python`
+- 复合信息源会展开为多个内部结果键，但响应中的 `total_sources` 仍按请求中的逻辑信息源数量统计；例如请求 `CSDN` 时为 1
+- 未注册的信息源不会进入采集页面配置；批量采集时会返回其它有效配置的结果
 
 采集示例：
 
@@ -143,6 +164,14 @@ POST /collect
 curl -X POST http://localhost:23119/collect \
   -H "Content-Type: application/json" \
   -d '{"sources": ["aihot"]}'
+```
+
+采集 CSDN 三个独立板块：
+
+```bash
+curl -X POST http://localhost:23119/collect \
+  -H "Content-Type: application/json" \
+  -d '{"sources": ["CSDN"]}'
 ```
 
 响应结果中的 `items_by_source` 会包含类似结构：
@@ -161,6 +190,34 @@ curl -X POST http://localhost:23119/collect \
       "title": "日报标题",
       "url": "https://aihot.virxact.com/items/...",
       "source": "aihot_daily"
+    }
+  ]
+}
+```
+
+请求 CSDN 时，响应中的 `items_by_source` 结构如下：
+
+```json
+{
+  "CSDN_all": [
+    {
+      "title": "资讯头条标题",
+      "url": "https://blog.csdn.net/...",
+      "source": "CSDN_all"
+    }
+  ],
+  "CSDN_ai": [
+    {
+      "title": "人工智能文章标题",
+      "url": "https://blog.csdn.net/...",
+      "source": "CSDN_ai"
+    }
+  ],
+  "CSDN_python": [
+    {
+      "title": "Python 文章标题",
+      "url": "https://blog.csdn.net/...",
+      "source": "CSDN_python"
     }
   ]
 }
@@ -285,4 +342,4 @@ stop.bat   终止 python.exe 进程
 - HTTPX
 - python-dotenv
 
-当前项目未包含自动化测试、数据库、任务队列、容器配置或 CI/CD 配置。
+当前项目未包含自动化测试、数据库、任务队列、容器配置或 CI/CD 配置。采集、格式化和推送也不会在服务内部自动串联，调用方需要分别调用对应接口。

@@ -15,6 +15,7 @@
 """
 
 from abc import ABC, abstractmethod
+import json
 from parsel import Selector
 from typing import List, Dict, Any
 from schemas import ParsedItem
@@ -306,6 +307,78 @@ class AihotParser(BaseParser):
         pass
 
 
+class CsdnParser(BaseParser):
+    """CSDN 首页资讯及分类内容解析器"""
+
+    source_name: str = "CSDN"
+
+    def __init__(self, section: str):
+        self.section = section
+        self.source_name = f"CSDN_{section}"
+
+    def parse_list(self, selector: Selector) -> List[ParsedItem]:
+        """解析 CSDN 指定板块的新闻列表"""
+        if self.section == "all":
+            return self._parse_homepage(selector)
+
+        return self._parse_api_response(selector)
+
+    def _parse_homepage(self, selector: Selector) -> List[ParsedItem]:
+        items = []
+        seen_urls = set()
+
+        links = selector.xpath(
+            "//div[@id='home-content-box']//div[contains(@class, 'home-info-banner')]"
+            "//a[contains(@class, 'banner-box')]"
+        )
+        links += selector.xpath(
+            "//div[@id='home-content-box']//div[contains(@class, 'home-info-headlines')]"
+            "//a[@href]"
+        )
+
+        for link in links:
+            url = link.xpath("@href").get()
+            title = link.xpath(
+                "normalize-space(string(.//p//span | .//span[contains(@class, 'text')]))"
+            ).get()
+            if not url or not title or url in seen_urls:
+                continue
+
+            items.append(ParsedItem(title=title, url=url, source=self.source_name))
+            seen_urls.add(url)
+
+        return items
+
+    def _parse_api_response(self, selector: Selector) -> List[ParsedItem]:
+        response_text = selector.xpath("//pre/text()").get()
+        if not response_text:
+            response_text = selector.xpath("string(//body)").get()
+        if not response_text:
+            response_text = selector.xpath("string(.)").get()
+
+        payload = json.loads(response_text.strip())
+        component_data = payload["data"]["silkroad-pre-home-list"]
+        entries = component_data.get("info", [])[:10]
+
+        items = []
+        seen_urls = set()
+        for entry in entries:
+            article = entry.get("extend", {})
+            title = article.get("title", "").strip()
+            url = article.get("url", "").strip()
+            if not title or not url or url in seen_urls:
+                continue
+
+            items.append(ParsedItem(title=title, url=url, source=self.source_name))
+            seen_urls.add(url)
+
+        return items
+
+    def parse_detail(self, selector: Selector) -> ParsedItem:
+        """CSDN 详情页解析预留接口"""
+        pass
+
+
 class ArticleParser(BaseParser):
     """
     通用文章解析器
@@ -370,6 +443,22 @@ SOURCES: Dict[str, Dict[str, Any]] = {
             "aihot_daily": {
                 "parser": AihotParser(section="daily"),
                 "home_url": "https://aihot.virxact.com/daily",
+            },
+        },
+    },
+    "CSDN": {
+        "sections": {
+            "CSDN_all": {
+                "parser": CsdnParser(section="all"),
+                "home_url": "https://www.csdn.net/",
+            },
+            "CSDN_ai": {
+                "parser": CsdnParser(section="ai"),
+                "home_url": "https://cms-api.csdn.net/v1/web_home/select_content?componentIds=silkroad-pre-home-list&cate1=ai",
+            },
+            "CSDN_python": {
+                "parser": CsdnParser(section="python"),
+                "home_url": "https://cms-api.csdn.net/v1/web_home/select_content?componentIds=silkroad-pre-home-list&cate1=python",
             },
         },
     },

@@ -14,6 +14,9 @@ from typing import Any, Dict, List
 SOURCE_TITLES = {
     "aihot_hot": "AI 热点榜",
     "aihot_daily": "AI 日报",
+    "CSDN_all": "CSDN 资讯头条",
+    "CSDN_ai": "CSDN 人工智能",
+    "CSDN_python": "CSDN Python",
 }
 
 
