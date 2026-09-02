@@ -281,6 +281,148 @@ POST /push
 - 每个字符串视为一条独立消息
 - `success_count` 和 `failed_count` 按实际发送的消息数量统计
 
+## n8n 工作流
+
+工作流导出文件为 [`NewsFlow.json`](NewsFlow.json)，工作流 ID 为
+`mMmbifvy5nn5WzC1`。n8n 负责定时触发和串联服务，NewsFlow 服务本身只提供采集、格式化和推送接口，不在进程内部自动串联这些步骤。
+
+当前工作流为 4 条相互独立的流水线，每条都遵循：
+
+```text
+Schedule Trigger
+      |
+      v
+POST /collect
+      |
+      v
+POST /processor/format
+      |
+      v
+POST /push
+```
+
+### 调度和采集源
+
+| 触发时间 | 采集请求 `sources` | 用途 |
+| --- | --- | --- |
+| 每天 09:00 | `sina`, `163`, `tencent` | 新浪、网易、腾讯新闻 |
+| 每天 10:00 | `aihot`, `CSDN` | AI 热点、AI 日报和 CSDN 三个板块 |
+| 每天 15:00 | `CSDN` | 再次采集 CSDN 三个板块 |
+| 每周一 10:00 | `AgentArena` | Agent Arena Overall 榜单 |
+
+每条采集节点都请求：
+
+```text
+http://host.docker.internal:23119/collect
+```
+
+其中 `host.docker.internal` 用于让 Docker 中的 n8n 访问宿主机上的 NewsFlow 服务。每日调度在 n8n 中使用 `triggerAtHour`，每周调度使用 `field: "weeks"` 和 `triggerAtDay: [1]` 表示周一。
+
+### 流水线数据
+
+#### 1. 采集服务
+
+n8n 的采集节点发送 JSON：
+
+```json
+{
+  "sources": ["aihot", "CSDN"]
+}
+```
+
+`/collect` 返回：
+
+```json
+{
+  "status": "success",
+  "total_sources": 2,
+  "items_by_source": {
+    "aihot_hot": [
+      {"title": "热点标题", "url": "https://...", "source": "aihot_hot"}
+    ],
+    "aihot_daily": [
+      {"title": "日报标题", "url": "https://...", "source": "aihot_daily"}
+    ],
+    "CSDN_all": [],
+    "CSDN_ai": [],
+    "CSDN_python": []
+  },
+  "total_items": 1,
+  "errors": null
+}
+```
+
+复合信息源会在采集响应中展开为内部结果键：`aihot` 展开为 `aihot_hot` 和 `aihot_daily`，`CSDN` 展开为 `CSDN_all`、`CSDN_ai` 和 `CSDN_python`。
+
+#### 2. 格式化服务
+
+n8n 使用上一个节点的 `items_by_source`，构造请求：
+
+```json
+{
+  "data": [
+    {
+      "collect": "{{$json.items_by_source}}"
+    }
+  ]
+}
+```
+
+实际 n8n 表达式使用 `JSON.stringify($json.items_by_source)`，因此服务收到的是对象而不是普通文本。`/processor/format` 返回：
+
+```json
+{
+  "status": "success",
+  "messages": [
+    "# AI 热点榜\n- [热点标题](https://...)"
+  ],
+  "errors": null
+}
+```
+
+排行榜数据带有 `rank` 字段时，格式化器会先整体排序并分配连续的显示排名，再按 2000 字符限制拆分。拆分后的消息使用加粗排名格式，例如：
+
+```markdown
+**1.** [模型 A](https://...)
+**13.** [模型 M](https://...)
+```
+
+这样可以避免协作平台把 `1.`、`2.` 等内容识别为 Markdown 有序列表后重新编号。
+
+#### 3. 推送服务
+
+n8n 使用格式化节点的 `messages`，构造请求：
+
+```json
+{
+  "items": "{{$json.messages}}",
+  "targets": []
+}
+```
+
+实际 n8n 表达式使用 `JSON.stringify($json.messages)`。`targets` 为空表示推送到全部已注册目标，即当前的 `wechat` 和 `wps`。`/push` 会把 `items` 中的每个 Markdown 字符串作为一条独立消息发送。
+
+### 本轮变更记录
+
+本轮没有执行 `git commit`，以下为可用于提交的日志内容：
+
+```text
+修复排行榜分块后的连续排名和 Markdown 自动编号问题
+
+- 排行榜分块前统一生成全局连续显示排名
+- 修复后续消息从 1 重新开始的问题
+- 使用 **排名.** 格式，避免协作平台自动重排有序列表
+- 更新 n8n 工作流说明，记录 4 条定时采集和推送链路
+```
+
+### 本轮文件清单
+
+| 文件 | 状态 | 内容 |
+| --- | --- | --- |
+| [`processor/formatter.py`](processor/formatter.py) | 修改 | 排行榜全局连续编号及 Markdown 兼容格式 |
+| [`NewsFlow.json`](NewsFlow.json) | 新增/更新导出文件 | n8n 工作流，包含 4 个调度触发器和 4 条完整服务链路 |
+| [`README.md`](README.md) | 修改 | 补充实现变更、n8n 流水线数据、提交日志和文件清单 |
+
 ## 配置
 
 配置模块为 [`config.py`](config.py)，当前默认值如下：

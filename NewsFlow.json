@@ -1,0 +1,451 @@
+{
+  "name": "NewsFlow",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        224,
+        -368
+      ],
+      "id": "fc4d406d-cdf2-44b1-ab4d-a953a9146d03",
+      "name": "每天9点触发",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:23119/collect",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"sources\": [\"sina\", \"163\", \"tencent\"]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        432,
+        -368
+      ],
+      "id": "e260e599-8208-4a43-a527-daf991644692",
+      "name": "9点采集服务请求"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:23119/processor/format",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"data\": [{\n    \"collect\": {{ JSON.stringify($json.items_by_source) }}\n  }]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        624,
+        -368
+      ],
+      "id": "b2aad4c5-ef8a-46d0-8fa2-088af58f8275",
+      "name": "9点数据处理服务请求"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:23119/push",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"items\": {{ JSON.stringify($json.messages) }},\n  \"targets\": []\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        816,
+        -368
+      ],
+      "id": "9792f31c-5533-4786-82ee-36aa1d423ed4",
+      "name": "9点推送服务请求"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 10
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        224,
+        -176
+      ],
+      "id": "1fe4c4a5-6bce-421d-a0f4-cdb60c3b8df7",
+      "name": "每天10点触发",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:23119/collect",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"sources\": [\"aihot\", \"CSDN\"]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        432,
+        -176
+      ],
+      "id": "0a2b23a4-a902-4899-beb5-998790cf50c4",
+      "name": "10点采集服务请求"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:23119/processor/format",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"data\": [{\n    \"collect\": {{ JSON.stringify($json.items_by_source) }}\n  }]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        624,
+        -176
+      ],
+      "id": "f2b5872d-2907-4352-afe1-b5e0b1d466f4",
+      "name": "10点数据处理服务请求"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:23119/push",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"items\": {{ JSON.stringify($json.messages) }},\n  \"targets\": []\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        816,
+        -176
+      ],
+      "id": "02883f1d-9133-4a08-85a3-b2255409f8a3",
+      "name": "10点推送服务请求"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 15
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        224,
+        32
+      ],
+      "id": "d90f73c7-0158-4928-9737-189c4d16e9cc",
+      "name": "每天15点触发",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:23119/collect",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"sources\": [\"CSDN\"]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        432,
+        32
+      ],
+      "id": "3687504c-abaf-419b-b2a9-a09138941539",
+      "name": "15点采集服务请求"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:23119/processor/format",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"data\": [{\n    \"collect\": {{ JSON.stringify($json.items_by_source) }}\n  }]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        624,
+        32
+      ],
+      "id": "f72b043a-5733-4d2c-9b6f-b205ecffa45f",
+      "name": "15点数据处理服务请求"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:23119/push",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"items\": {{ JSON.stringify($json.messages) }},\n  \"targets\": []\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        816,
+        32
+      ],
+      "id": "c946ece6-3701-4829-9ab5-87c114e1b5b9",
+      "name": "15点推送服务请求"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                1
+              ],
+              "triggerAtHour": 10
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        224,
+        240
+      ],
+      "id": "9ac30bd4-bb98-4842-8486-b3995cdf4eb5",
+      "name": "每周一10点触发",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:23119/collect",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"sources\": [\"AgentArena\"]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        432,
+        240
+      ],
+      "id": "c7a1da94-1039-4c03-810e-551fe581b46a",
+      "name": "周一采集服务请求"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:23119/processor/format",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"data\": [{\n    \"collect\": {{ JSON.stringify($json.items_by_source) }}\n  }]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        624,
+        240
+      ],
+      "id": "2d4a24d7-0325-4c7c-acef-a54514bf676d",
+      "name": "周一数据处理服务请求"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:23119/push",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"items\": {{ JSON.stringify($json.messages) }},\n  \"targets\": []\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        816,
+        240
+      ],
+      "id": "a73dc71d-26b3-48bb-98d8-a256c4667dd8",
+      "name": "周一推送服务请求"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "每天9点触发": {
+      "main": [
+        [
+          {
+            "node": "9点采集服务请求",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "9点采集服务请求": {
+      "main": [
+        [
+          {
+            "node": "9点数据处理服务请求",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "9点数据处理服务请求": {
+      "main": [
+        [
+          {
+            "node": "9点推送服务请求",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "每天10点触发": {
+      "main": [
+        [
+          {
+            "node": "10点采集服务请求",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "10点采集服务请求": {
+      "main": [
+        [
+          {
+            "node": "10点数据处理服务请求",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "10点数据处理服务请求": {
+      "main": [
+        [
+          {
+            "node": "10点推送服务请求",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "每天15点触发": {
+      "main": [
+        [
+          {
+            "node": "15点采集服务请求",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "15点采集服务请求": {
+      "main": [
+        [
+          {
+            "node": "15点数据处理服务请求",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "15点数据处理服务请求": {
+      "main": [
+        [
+          {
+            "node": "15点推送服务请求",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "每周一10点触发": {
+      "main": [
+        [
+          {
+            "node": "周一采集服务请求",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "周一采集服务请求": {
+      "main": [
+        [
+          {
+            "node": "周一数据处理服务请求",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "周一数据处理服务请求": {
+      "main": [
+        [
+          {
+            "node": "周一推送服务请求",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "33c086ea-919d-4a4f-b100-edfd877a8b06",
+  "meta": {
+    "instanceId": "7a2aa1209d098f8ce21002d9ac721ef1b1266ff18ae1f30438844e2758a08dfe"
+  },
+  "id": "mMmbifvy5nn5WzC1",
+  "tags": []
+}

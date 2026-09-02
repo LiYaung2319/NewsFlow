@@ -101,16 +101,22 @@ class CollectFormatter(BaseFormatter):
         if not ranked_items:
             return []
 
+        # Assign display ranks once before chunking so later messages continue
+        # from the previous chunk instead of restarting at 1.
+        ranked_items = [
+            {**item, "_display_rank": index}
+            for index, item in enumerate(ranked_items, start=1)
+        ]
         total = len(ranked_items)
         chunks: List[List[Dict[str, Any]]] = []
         current: List[Dict[str, Any]] = []
         for item in ranked_items:
             candidate = current + [item]
-            first_rank = candidate[0]["rank"]
-            last_rank = candidate[-1]["rank"]
+            first_rank = candidate[0]["_display_rank"]
+            last_rank = candidate[-1]["_display_rank"]
             header = f"# {source_title}\n> 排名 {first_rank}-{last_rank} / {total}\n\n"
             body = "\n".join(
-                f"{entry['rank']}. [{entry.get('title', '')}]({entry.get('url', '')})"
+                f"**{entry['_display_rank']}.** [{entry.get('title', '')}]({entry.get('url', '')})"
                 for entry in candidate
             )
             if len(header + body) > 2000 and current:
@@ -124,11 +130,11 @@ class CollectFormatter(BaseFormatter):
 
         messages = []
         for chunk in chunks:
-            first_rank = chunk[0]["rank"]
-            last_rank = chunk[-1]["rank"]
+            first_rank = chunk[0]["_display_rank"]
+            last_rank = chunk[-1]["_display_rank"]
             header = f"# {source_title}\n> 排名 {first_rank}-{last_rank} / {total}\n\n"
             body = "\n".join(
-                f"{item['rank']}. [{item.get('title', '')}]({item.get('url', '')})"
+                f"**{item['_display_rank']}.** [{item.get('title', '')}]({item.get('url', '')})"
                 for item in chunk
             )
             messages.append(header + body)
