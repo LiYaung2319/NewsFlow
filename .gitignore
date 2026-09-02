@@ -2,3 +2,7 @@
 __pycache__/
 __init__.py
 .env
+
+# Runtime logs and local artifacts
+/logs/
+/nul
