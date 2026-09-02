@@ -12,6 +12,7 @@ from typing import Any, Dict, List
 
 
 SOURCE_TITLES = {
+    "AgentArena": "Agent Arena Overall 榜",
     "aihot_hot": "AI 热点榜",
     "aihot_daily": "AI 日报",
     "CSDN_all": "CSDN 资讯头条",
@@ -72,6 +73,10 @@ class CollectFormatter(BaseFormatter):
         items_list = []
         for source, items in data.items():
             source_title = SOURCE_TITLES.get(source, f"{source} 资讯")
+            if any(item.get("rank") is not None for item in items):
+                items_list.extend(self._format_ranking(source_title, items))
+                continue
+
             content = f"# {source_title}"
             for item in items:
                 item_title = item.get("title", "")
@@ -83,6 +88,51 @@ class CollectFormatter(BaseFormatter):
             if content != f"# {source_title}":
                 items_list.append(content)
         return items_list
+
+    @staticmethod
+    def _format_ranking(
+        source_title: str, items: List[Dict[str, Any]]
+    ) -> List[str]:
+        """将带 rank 的数据按榜单布局格式化，并按消息长度拆分。"""
+        ranked_items = sorted(
+            (item for item in items if item.get("rank") is not None),
+            key=lambda item: item["rank"],
+        )
+        if not ranked_items:
+            return []
+
+        total = len(ranked_items)
+        chunks: List[List[Dict[str, Any]]] = []
+        current: List[Dict[str, Any]] = []
+        for item in ranked_items:
+            candidate = current + [item]
+            first_rank = candidate[0]["rank"]
+            last_rank = candidate[-1]["rank"]
+            header = f"# {source_title}\n> 排名 {first_rank}-{last_rank} / {total}\n\n"
+            body = "\n".join(
+                f"{entry['rank']}. [{entry.get('title', '')}]({entry.get('url', '')})"
+                for entry in candidate
+            )
+            if len(header + body) > 2000 and current:
+                chunks.append(current)
+                current = [item]
+            else:
+                current = candidate
+
+        if current:
+            chunks.append(current)
+
+        messages = []
+        for chunk in chunks:
+            first_rank = chunk[0]["rank"]
+            last_rank = chunk[-1]["rank"]
+            header = f"# {source_title}\n> 排名 {first_rank}-{last_rank} / {total}\n\n"
+            body = "\n".join(
+                f"{item['rank']}. [{item.get('title', '')}]({item.get('url', '')})"
+                for item in chunk
+            )
+            messages.append(header + body)
+        return messages
 
 
 FORMATS = {

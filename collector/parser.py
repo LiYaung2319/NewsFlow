@@ -16,10 +16,11 @@
 
 from abc import ABC, abstractmethod
 import json
+import re
 from parsel import Selector
 from typing import List, Dict, Any
 from schemas import ParsedItem
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 
 class BaseParser(ABC):
@@ -379,6 +380,109 @@ class CsdnParser(BaseParser):
         pass
 
 
+class AgentArenaParser(BaseParser):
+    """Agent Arena Overall 榜单解析器。"""
+
+    source_name: str = "AgentArena"
+    leaderboard_url: str = "https://arena.ai/leaderboard/agent/overall"
+    max_rank: int = 50
+
+    def parse_list(self, selector: Selector) -> List[ParsedItem]:
+        """提取 Overall 榜单前 50 名，允许不同条目共享 URL。"""
+        rows = selector.xpath("//table//tbody/tr")
+        if not rows:
+            rows = selector.xpath("//*[@role='row'][.//*[@role='cell']]")
+        if not rows:
+            rows = selector.xpath("//tr[td]")
+
+        items = []
+        seen_ranks = set()
+        for row in rows:
+            rank = self._extract_rank(row)
+            if rank is None or rank < 1 or rank > self.max_rank or rank in seen_ranks:
+                continue
+
+            title, url = self._extract_model(row)
+            if not title:
+                continue
+
+            items.append(
+                ParsedItem(
+                    title=title,
+                    url=url or self.leaderboard_url,
+                    source=self.source_name,
+                    rank=rank,
+                )
+            )
+            seen_ranks.add(rank)
+
+        return sorted(items, key=lambda item: item.rank or 0)
+
+    @staticmethod
+    def _extract_rank(row) -> int:
+        cells = row.xpath("./td | .//*[@role='cell']")
+        if cells:
+            for value in cells[0].xpath(".//text()").getall():
+                value = value.strip()
+                if value.isdigit():
+                    return int(value)
+
+        candidates = [
+            cell.xpath("normalize-space(string(.))").get("") for cell in cells
+        ]
+        for value in candidates:
+            match = re.match(r"^(\d{1,3})(?:\s|$)", value)
+            if match:
+                return int(match.group(1))
+
+        row_text = row.xpath("normalize-space(string(.))").get("")
+        match = re.match(r"^(\d{1,3})(?:\s|$)", row_text)
+        return int(match.group(1)) if match else None
+
+    def _extract_model(self, row):
+        model_titles = row.xpath("./td[2]//span[@title]/@title")
+        if not model_titles:
+            model_titles = row.xpath(
+                ".//*[@role='cell'][2]//span[@title]/@title"
+            )
+
+        links = row.xpath(".//a[@href]")
+        for link in links:
+            title = link.xpath(".//span[@title]/@title").get() or link.xpath(
+                "normalize-space(string(.))"
+            ).get("")
+            href = link.xpath("@href").get("")
+            parsed = urlparse(href)
+            if title and href and not (
+                parsed.netloc == "arena.ai" or href.startswith("/leaderboard")
+            ):
+                return title, urljoin(self.leaderboard_url, href)
+
+        if model_titles:
+            return model_titles[0].get().strip(), ""
+
+        cells = row.xpath("./td | .//*[@role='cell']")
+        if len(cells) >= 3:
+            model_title = cells[2].xpath("normalize-space(string(.))").get("")
+            if model_title and len(model_title) <= 120:
+                return model_title, ""
+
+        for cell in cells:
+            title = cell.xpath("normalize-space(string(.))").get("")
+            if title and not re.fullmatch(r"[\d,.%$±/\s-]+", title):
+                if len(title) <= 120 and not any(
+                    marker in title
+                    for marker in ("Proprietary", "Apache", "MIT", "License")
+                ):
+                    return title, ""
+
+        return "", ""
+
+    def parse_detail(self, selector: Selector) -> ParsedItem:
+        """Agent Arena 详情页解析预留接口"""
+        pass
+
+
 class ArticleParser(BaseParser):
     """
     通用文章解析器
@@ -461,6 +565,10 @@ SOURCES: Dict[str, Dict[str, Any]] = {
                 "home_url": "https://cms-api.csdn.net/v1/web_home/select_content?componentIds=silkroad-pre-home-list&cate1=python",
             },
         },
+    },
+    "AgentArena": {
+        "parser": AgentArenaParser(),
+        "home_url": "https://arena.ai/leaderboard/agent/overall",
     },
 }
 

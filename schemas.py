@@ -27,6 +27,7 @@ class ParsedItem:
     - title: 新闻标题
     - url: 新闻链接
     - source: 数据来源标识（sina/163/tencent）
+    - rank: 榜单排名（可选）
     - text: 详情文本（可选）
     """
 
@@ -34,6 +35,7 @@ class ParsedItem:
     url: str
     source: str
     text: Optional[str] = None  # 预留字段
+    rank: Optional[int] = None  # 榜单排名（可选）
 
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
@@ -44,6 +46,8 @@ class ParsedItem:
         }
         if self.text:
             result["text"] = self.text
+        if self.rank is not None:
+            result["rank"] = self.rank
         return result
 
 

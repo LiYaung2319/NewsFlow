@@ -62,7 +62,7 @@ main.py
 
 ### 处理层
 
-[`CollectFormatter`](processor/formatter.py) 将 `items_by_source` 转换为 Markdown 消息列表。每个结果键单独生成消息，内容长度超过 2000 个字符后按条目分块；分块是在追加完整条目后判断，因此单个块可能略微超过 2000 个字符。
+[`CollectFormatter`](processor/formatter.py) 将 `items_by_source` 转换为 Markdown 消息列表。每个结果键单独生成消息，内容长度超过 2000 个字符后按条目分块。包含 `rank` 字段的榜单结果使用专用模板，按排名排序并显示当前消息的排名范围；普通结果继续使用常规资讯列表格式。
 
 ### 推送层
 
@@ -73,7 +73,7 @@ main.py
 
 ## 信息源
 
-当前共有 5 个逻辑信息源：
+当前共有 6 个逻辑信息源：
 
 | 标识 | 网站 | 采集内容 |
 | --- | --- | --- |
@@ -82,6 +82,7 @@ main.py
 | `tencent` | 腾讯新闻 | 腾讯新闻首页列表 |
 | `aihot` | [AIHOT](https://aihot.virxact.com/) | AI 热点榜和今日 AI 日报 |
 | `CSDN` | [CSDN](https://www.csdn.net/) | 资讯头条、人工智能和 Python |
+| `AgentArena` | [Agent Arena](https://arena.ai/leaderboard/agent/overall) | Agent Overall 榜单前 50 名 |
 
 ### AIHOT 复合信息源
 
@@ -116,6 +117,10 @@ main.py
 | `CSDN_python` | Python 栏目按接口顺序前 10 条 | CSDN 内容接口，参数 `cate1=python` |
 
 三个板块分别采集、分别返回、分别格式化，不会合并为一组消息。
+
+### AgentArena 普通信息源
+
+`AgentArena` 采集 Agent Arena `Overall` 榜单按排名前 50 名的模型，结果键为 `AgentArena`。每条结果包含可选的 `rank` 字段，按榜单排名排序；不同模型条目即使共享同一个官方 URL 也会保留。榜单条目缺少官方 URL 时，回填为 Overall 榜单页面 URL。该信息源不采集 `Net Improvement` 或其它榜单指标。
 
 `CSDN_all` 当前从首页 `资讯头条` 区域提取顶部推荐和头条列表中的所有标题、链接；`CSDN_ai` 和 `CSDN_python` 从 CSDN 内容接口的 `extend.title`、`extend.url` 字段提取前 10 条。
 
