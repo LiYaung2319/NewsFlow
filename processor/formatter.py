@@ -116,7 +116,7 @@ class CollectFormatter(BaseFormatter):
             last_rank = candidate[-1]["_display_rank"]
             header = f"# {source_title}\n> 排名 {first_rank}-{last_rank} / {total}\n\n"
             body = "\n".join(
-                f"**{entry['_display_rank']}.** [{entry.get('title', '')}]({entry.get('url', '')})"
+                f"- **{entry['_display_rank']}.** [{entry.get('title', '')}]({entry.get('url', '')})"
                 for entry in candidate
             )
             if len(header + body) > 2000 and current:
@@ -134,7 +134,7 @@ class CollectFormatter(BaseFormatter):
             last_rank = chunk[-1]["_display_rank"]
             header = f"# {source_title}\n> 排名 {first_rank}-{last_rank} / {total}\n\n"
             body = "\n".join(
-                f"**{item['_display_rank']}.** [{item.get('title', '')}]({item.get('url', '')})"
+                f"- **{item['_display_rank']}.** [{item.get('title', '')}]({item.get('url', '')})"
                 for item in chunk
             )
             messages.append(header + body)
