@@ -16,7 +16,10 @@ SENDERS：推送器注册表，按平台管理配置和实例
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Tuple, Optional
 import os
+import logging
 import httpx
+
+logger = logging.getLogger(__name__)
 
 
 class BaseSender(ABC):
@@ -70,16 +73,33 @@ class WeChatSender(BaseSender):
         try:
             async with httpx.AsyncClient(headers=headers, timeout=10.0) as client:
                 response = await client.post(self.webhook_url, json=payload)
+                response.raise_for_status()
                 data = response.json()
 
             if data.get("errcode") == 0:
                 return True, None
             else:
+                error = f"errcode={data.get('errcode')}, errmsg={data.get('errmsg')}"
+                logger.error(
+                    "push target=%s stage=response status=failed error=%s",
+                    self.platform,
+                    error,
+                )
                 return (
                     False,
-                    f"errcode={data.get('errcode')}, errmsg={data.get('errmsg')}",
+                    error,
                 )
+        except httpx.HTTPStatusError as e:
+            error = f"HTTP {e.response.status_code} body={e.response.text[:300]}"
+            logger.error("push target=%s stage=response status=failed error=%s", self.platform, error)
+            return False, error
+        except ValueError as e:
+            body = response.text[:300] if "response" in locals() else ""
+            error = f"响应解析失败: {e} body={body}"
+            logger.error("push target=%s stage=response status=failed error=%s", self.platform, error)
+            return False, error
         except Exception as e:
+            logger.exception("push target=%s stage=request", self.platform)
             return False, f"出现意外错误: {e}"
 
     async def send_batch(self, items: List[str]) -> Dict[str, Any]:
@@ -145,16 +165,33 @@ class WPSSender(BaseSender):
         try:
             async with httpx.AsyncClient(headers=headers, timeout=10.0) as client:
                 response = await client.post(self.webhook_url, json=payload)
+                response.raise_for_status()
                 data = response.json()
 
             if data.get("result") == "ok":
                 return True, None
             else:
+                error = f"code={data.get('code')}, msg={data.get('msg')}"
+                logger.error(
+                    "push target=%s stage=response status=failed error=%s",
+                    self.platform,
+                    error,
+                )
                 return (
                     False,
-                    f"code={data.get('code')}, msg={data.get('msg')}",
+                    error,
                 )
+        except httpx.HTTPStatusError as e:
+            error = f"HTTP {e.response.status_code} body={e.response.text[:300]}"
+            logger.error("push target=%s stage=response status=failed error=%s", self.platform, error)
+            return False, error
+        except ValueError as e:
+            body = response.text[:300] if "response" in locals() else ""
+            error = f"响应解析失败: {e} body={body}"
+            logger.error("push target=%s stage=response status=failed error=%s", self.platform, error)
+            return False, error
         except Exception as e:
+            logger.exception("push target=%s stage=request", self.platform)
             return False, f"出现意外错误: {e}"
 
     async def send_batch(self, items: List[str]) -> Dict[str, Any]:

@@ -15,6 +15,8 @@ POST /collect: 执行数据采集
 外部请求 → 路由 → 创建客户端 → 判断采集策略 → 执行采集 → 格式化响应 → 返回
 """
 
+import logging
+import time
 from typing import Dict, List, Optional, Tuple
 from fastapi import APIRouter
 from parsel import Selector
@@ -23,6 +25,31 @@ from collector.parser import SOURCES, SOURCES_KEYS
 from schemas import CollectRequest, CollectResponse
 
 router = APIRouter(prefix="/collect", tags=["collector"])
+logger = logging.getLogger(__name__)
+
+
+def _log_source_result(
+    source: str,
+    items: Optional[List[Dict]] = None,
+    error: Optional[str] = None,
+) -> None:
+    """记录单个信息源结果。"""
+    item_count = len(items or [])
+    if error:
+        logger.error(
+            "collect source=%s status=failed items=0 error=%s",
+            source,
+            error,
+        )
+    elif item_count == 0:
+        logger.warning("collect source=%s status=no_data items=0", source)
+    else:
+        logger.info(
+            "collect source=%s status=success items=%d",
+            source,
+            item_count,
+        )
+
 
 
 @router.get("/sources")
@@ -74,6 +101,7 @@ async def _collect_single(
             - errors: 错误信息列表
     """
     if source not in SOURCES:
+        _log_source_result(source, error=f"数据源配置不存在: {source}")
         return {source: []}, [f"数据源配置不存在: {source}"]
 
     home_url = SOURCES[source]["home_url"]
@@ -82,8 +110,11 @@ async def _collect_single(
     try:
         selector = await client.get(home_url)
         items, error = _parse_and_validate(selector, parser, source)
+        _log_source_result(source, items, error)
         return {source: items}, [error] if error else []
     except Exception as e:
+        logger.exception("collect source=%s stage=collect", source)
+        _log_source_result(source, error=str(e))
         return {source: []}, [f"{source} 采集失败: {str(e)}"]
 
 
@@ -118,6 +149,11 @@ async def _collect_batch(
     items_by_source = {}
     errors = list(batch_errors)
 
+    for batch_error in batch_errors:
+        source, separator, detail = batch_error.partition(" 采集失败:")
+        if separator and source in source_configs:
+            _log_source_result(source, error=detail)
+
     for source, selector in selectors.items():
         parser = source_configs[source]["parser"]
         items, error = _parse_and_validate(selector, parser, source)
@@ -126,6 +162,7 @@ async def _collect_batch(
             errors.append(error)
 
         items_by_source[source] = items
+        _log_source_result(source, items, error)
 
     return items_by_source, errors
 
@@ -169,12 +206,13 @@ def _parse_and_validate(
         parsed_items = parser.parse_list(selector)
 
         if not parsed_items:
-            return [], f"未从 {source} 获取到数据"
+            return [], None
 
         items = [item.to_dict() for item in parsed_items if parser.validate(item)]
 
         return items, None
     except Exception as e:
+        logger.exception("collect source=%s stage=parse", source)
         return [], f"{source} 解析失败: {str(e)}"
 
 
@@ -195,6 +233,7 @@ async def collect(request: CollectRequest):
     返回：
     CollectResponse 采集响应对象，包含状态、结果和错误信息
     """
+    started_at = time.perf_counter()
     async with BrowserClient() as client:
         if "all" in request.sources or not request.sources:
             sources_to_collect = SOURCES_KEYS
@@ -217,7 +256,37 @@ async def collect(request: CollectRequest):
             )
 
         total_items = sum(len(items) for items in items_by_source.values())
-        errors = [e for e in errors if e is not None]
+        errors = [e for e in errors if e]
+        expected_sources = (
+            _expand_source_configs(sources_to_collect)
+            if len(sources_to_collect) != 1 or is_composite_source
+            else {source: SOURCES[source]} if source in SOURCES else {source: {}}
+        )
+        error_sources = {
+            source_name
+            for source_name in expected_sources
+            if source_name not in items_by_source
+            or any(error.startswith(f"{source_name} ") for error in errors)
+        }
+        empty_sources = sum(
+            1
+            for source_name in expected_sources
+            if (
+                source_name in items_by_source
+                and not items_by_source[source_name]
+                and source_name not in error_sources
+            )
+        )
+        log_status = "error" if errors else "warning" if empty_sources else "success"
+        logger.log(
+            logging.ERROR if errors else logging.WARNING if empty_sources else logging.INFO,
+            "collect_done status=%s total_items=%d empty=%d errors=%d duration_ms=%d",
+            log_status,
+            total_items,
+            empty_sources,
+            len(errors),
+            int((time.perf_counter() - started_at) * 1000),
+        )
 
         return CollectResponse(
             status="success" if total_items > 0 else "no_data",

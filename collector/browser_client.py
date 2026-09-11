@@ -7,10 +7,13 @@
 """
 
 import asyncio
+import logging
 from typing import Dict, List, Optional, Tuple
 from parsel import Selector
 from playwright.async_api import async_playwright
 from config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class BrowserClient:
@@ -81,11 +84,16 @@ class BrowserClient:
         page = await self._context.new_page()
 
         try:
-            await page.goto(
+            response = await page.goto(
                 url,
                 wait_until=self.wait_until,
                 timeout=self.timeout * 1000,  # 转换为毫秒
             )
+            if response and response.status >= 400:
+                body = (await response.text())[:300]
+                raise RuntimeError(
+                    f"HTTP {response.status} {response.status_text} body={body}"
+                )
 
             if self.wait_time > 0:
                 await asyncio.sleep(self.wait_time)
@@ -128,6 +136,9 @@ class BrowserClient:
                     selector = await self.get(url)
                     return source, selector, None
                 except Exception as e:
+                    logger.exception(
+                        "collect source=%s stage=request url=%s", source, url
+                    )
                     return source, None, str(e)
 
         results = await asyncio.gather(

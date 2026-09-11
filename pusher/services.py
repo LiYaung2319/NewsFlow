@@ -15,11 +15,45 @@ POST /push: 执行消息推送
 """
 
 import asyncio
+import logging
+import time
 from fastapi import APIRouter
 from schemas import PushRequest, PushResponse
 from pusher.senders import SENDERS, SENDERS_KEYS
 
 router = APIRouter(prefix="/push", tags=["pusher"])
+logger = logging.getLogger(__name__)
+
+
+def _log_push_result(
+    target: str,
+    success: int,
+    failed: int,
+    errors: list,
+) -> None:
+    if errors:
+        logger.error(
+            "push target=%s status=failed success=%d failed=%d error=%s",
+            target,
+            success,
+            failed,
+            "; ".join(str(error) for error in errors),
+        )
+    elif failed:
+        logger.error(
+            "push target=%s status=failed success=%d failed=%d",
+            target,
+            success,
+            failed,
+        )
+    elif success == 0:
+        logger.warning("push target=%s status=no_data success=0 failed=0", target)
+    else:
+        logger.info(
+            "push target=%s status=success success=%d failed=0",
+            target,
+            success,
+        )
 
 
 async def _push_single(
@@ -37,10 +71,14 @@ async def _push_single(
         tuple: (success_count, failed_count, errors)
     """
     if target not in SENDERS:
-        return 0, len(items), [f"推送目标不存在: {target}"]
+        error = f"推送目标不存在: {target}"
+        _log_push_result(target, 0, len(items), [error])
+        return 0, len(items), [error]
 
     if not SENDERS[target].get("enabled", True):
-        return 0, len(items), [f"{target} 未启用"]
+        error = f"{target} 未启用"
+        _log_push_result(target, 0, len(items), [error])
+        return 0, len(items), [error]
 
     sender = SENDERS[target]["sender"]
 
@@ -50,9 +88,13 @@ async def _push_single(
         if result.get("errors"):
             for error in result["errors"]:
                 errors.append(f"{target} 推送失败: {error}")
+        _log_push_result(target, result["success"], result["failed"], errors)
         return result["success"], result["failed"], errors
     except Exception as e:
-        return 0, len(items), [f"{target} 推送异常: {str(e)}"]
+        logger.exception("push target=%s stage=send", target)
+        error = f"{target} 推送异常: {str(e)}"
+        _log_push_result(target, 0, len(items), [error])
+        return 0, len(items), [error]
 
 
 async def _push_batch(
@@ -115,6 +157,7 @@ async def push(request: PushRequest):
         success_count: 成功数
         failed_count: 失败数
     """
+    started_at = time.perf_counter()
     is_all = "all" in request.targets or not request.targets
     targets_to_push = SENDERS_KEYS if is_all else request.targets
 
@@ -129,6 +172,27 @@ async def push(request: PushRequest):
             targets_to_push, request.items
         )
         target_type = "batch"
+
+    if errors:
+        log_level = logging.ERROR
+        log_status = "error"
+    elif total_success == 0:
+        log_level = logging.WARNING
+        log_status = "no_data"
+    else:
+        log_level = logging.INFO
+        log_status = "success"
+    logger.log(
+        log_level,
+        "push_done status=%s targets=%d messages=%d success=%d failed=%d errors=%d duration_ms=%d",
+        log_status,
+        len(targets_to_push),
+        len(request.items),
+        total_success,
+        total_failed,
+        len(errors),
+        int((time.perf_counter() - started_at) * 1000),
+    )
 
     return PushResponse(
         status="success" if total_success > 0 else "failed",

@@ -11,6 +11,8 @@ POST /processor/format: 格式化数据为 Markdown
 """
 
 import asyncio
+import logging
+import time
 from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import List, Dict, Any, Union
@@ -19,6 +21,7 @@ from schemas import FormatRequest, FormatResponse
 
 
 router = APIRouter(prefix="/processor", tags=["processor"])
+logger = logging.getLogger(__name__)
 
 
 class HealthResponse(BaseModel):
@@ -55,12 +58,15 @@ async def _format_single(
     formatter = FORMATS.get(format_type)
 
     if not formatter:
-        return "failed", [], [f"不支持的格式化类型: {format_type}"]
+        error = f"不支持的格式化类型: {format_type}"
+        logger.error("format type=%s status=failed error=%s", format_type, error)
+        return "failed", [], [error]
 
     try:
         messages = formatter.format(data)
         return "success", messages, []
     except Exception as e:
+        logger.exception("format type=%s stage=format", format_type)
         return "failed", [], [str(e)]
 
 
@@ -116,11 +122,22 @@ async def format_data(request: FormatRequest):
     返回：
     FormatResponse 格式化响应对象，包含状态和格式化后的字符串列表
     """
+    started_at = time.perf_counter()
     if len(request.data) == 1:
         format_type, data = next(iter(request.data[0].items()))
         status, messages, errors = await _format_single(format_type, data)
     else:
         status, messages, errors = await _format_batch(request.data)
+
+    log_level = logging.ERROR if errors else logging.WARNING if not messages else logging.INFO
+    logger.log(
+        log_level,
+        "format_done status=%s messages=%d errors=%d duration_ms=%d",
+        "error" if errors else "no_data" if not messages else status,
+        len(messages),
+        len(errors),
+        int((time.perf_counter() - started_at) * 1000),
+    )
 
     return FormatResponse(
         status=status,

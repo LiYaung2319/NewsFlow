@@ -8,17 +8,59 @@ NewsFlow 项目入口模块
 """
 
 import sys
+import logging
 
 if sys.platform == "win32":
     import asyncio
 
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 from collector.services import router as collect_router
 from pusher.services import router as pusher_router
 from processor.services import router as processor_router
 from config import settings
+
+logger = logging.getLogger(__name__)
+
+
+def configure_logging() -> None:
+    """将应用日志分流到 stdout/stderr，由启动脚本统一管理文件。"""
+
+    class MaxLevelFilter(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:
+            return record.levelno < logging.WARNING
+
+    formatter = logging.Formatter(
+        "%(asctime)s %(levelname)s %(name)s %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S%z",
+    )
+    stdout_handler = logging.StreamHandler(sys.stdout)
+    stdout_handler.setLevel(logging.INFO)
+    stdout_handler.addFilter(MaxLevelFilter())
+    stdout_handler.setFormatter(formatter)
+    stdout_handler._newsflow_handler = True
+
+    stderr_handler = logging.StreamHandler(sys.stderr)
+    stderr_handler.setLevel(logging.WARNING)
+    stderr_handler.setFormatter(formatter)
+    stderr_handler._newsflow_handler = True
+
+    for logger_name in ("collector", "processor", "pusher", "main"):
+        app_logger = logging.getLogger(logger_name)
+        app_logger.setLevel(logging.INFO)
+        app_logger.propagate = False
+        if not any(
+            getattr(item, "_newsflow_handler", False) for item in app_logger.handlers
+        ):
+            app_logger.addHandler(stdout_handler)
+            app_logger.addHandler(stderr_handler)
+
+
+configure_logging()
 
 
 def create_app() -> FastAPI:
@@ -42,6 +84,30 @@ def create_app() -> FastAPI:
     app.include_router(pusher_router)
     # 注册处理器服务路由
     app.include_router(processor_router)
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(
+        request: Request, exc: RequestValidationError
+    ):
+        logger.error(
+            "request stage=validation status=failed method=%s path=%s error=%s",
+            request.method,
+            request.url.path,
+            exc.errors(),
+        )
+        return JSONResponse(
+            status_code=422,
+            content={"detail": jsonable_encoder(exc.errors())},
+        )
+
+    @app.exception_handler(Exception)
+    async def unhandled_exception_handler(request: Request, exc: Exception):
+        logger.exception(
+            "request stage=handler status=failed method=%s path=%s",
+            request.method,
+            request.url.path,
+        )
+        return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
 
     return app
 

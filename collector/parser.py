@@ -267,20 +267,32 @@ class AihotParser(BaseParser):
         """解析指定板块的标题和链接"""
         if self.section == "hot":
             links = selector.xpath(
-                "//section[@aria-labelledby='hot-day-title']"
+                "//div[contains(concat(' ', normalize-space(@class), ' '), ' hot-page ')]"
                 "//a[contains(concat(' ', normalize-space(@class), ' '), ' hot-rank-link ')"
                 " and starts-with(@href, '/story/')][@href]"
             )
+            if not links:
+                links = selector.xpath(
+                    "//section[@aria-labelledby='hot-day-title']"
+                    "//a[contains(concat(' ', normalize-space(@class), ' '), ' hot-rank-link ')"
+                    " and starts-with(@href, '/story/')][@href]"
+                )
         elif self.section == "daily":
             links = selector.xpath(
                 "//div[contains(concat(' ', normalize-space(@class), ' '), ' daily-report-page ')]"
-                "//article[contains(concat(' ', normalize-space(@class), ' '), ' daily-paper ')"
-                " and contains(concat(' ', normalize-space(@class), ' '), ' daily-report ')]"
-                "//div[contains(concat(' ', normalize-space(@class), ' '), ' daily-section-articles ')]"
-                "//article[contains(concat(' ', normalize-space(@class), ' '), ' daily-article ')]"
-                "//h3[contains(concat(' ', normalize-space(@class), ' '), ' daily-article-title ')]"
+                "//*[contains(concat(' ', normalize-space(@class), ' '), ' report-story-title ')]"
                 "//a[starts-with(@href, '/items/')][@href]"
             )
+            if not links:
+                links = selector.xpath(
+                    "//div[contains(concat(' ', normalize-space(@class), ' '), ' daily-report-page ')]"
+                    "//article[contains(concat(' ', normalize-space(@class), ' '), ' daily-paper ')"
+                    " and contains(concat(' ', normalize-space(@class), ' '), ' daily-report ')]"
+                    "//div[contains(concat(' ', normalize-space(@class), ' '), ' daily-section-articles ')]"
+                    "//article[contains(concat(' ', normalize-space(@class), ' '), ' daily-article ')]"
+                    "//h3[contains(concat(' ', normalize-space(@class), ' '), ' daily-article-title ')]"
+                    "//a[starts-with(@href, '/items/')][@href]"
+                )
         else:
             return []
 
@@ -358,6 +370,12 @@ class CsdnParser(BaseParser):
             response_text = selector.xpath("string(.)").get()
 
         payload = json.loads(response_text.strip())
+        if payload.get("success") is False or payload.get("code") not in (None, 0, 200, "0", "200"):
+            raise ValueError(
+                f"上游接口错误: code={payload.get('code')}, "
+                f"message={payload.get('message') or payload.get('msg')}"
+            )
+
         component_data = payload["data"]["silkroad-pre-home-list"]
         entries = component_data.get("info", [])[:10]
 
