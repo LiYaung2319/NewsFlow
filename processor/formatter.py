@@ -13,6 +13,8 @@ from typing import Any, Dict, List
 
 SOURCE_TITLES = {
     "AgentArena": "Agent Arena Overall 榜",
+    "EverythingSkill_hot": "EverythingSkill 热榜",
+    "EverythingSkill_new": "EverythingSkill 新榜",
     "aihot_hot": "AI 热点榜",
     "aihot_daily": "AI 日报",
     "CSDN_all": "CSDN 资讯头条",

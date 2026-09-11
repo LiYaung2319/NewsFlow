@@ -6,6 +6,81 @@
         "rule": {
           "interval": [
             {
+              "triggerAtHour": 9,
+              "triggerAtMinute": 30
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        224,
+        -560
+      ],
+      "id": "4c5c86e5-9eb7-43dc-bb8d-0b6f92fbe05d",
+      "name": "每天9点半触发",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:23119/collect",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"sources\": [\"EverythingSkill\"]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        432,
+        -560
+      ],
+      "id": "8a3aee2b-b89d-44f0-a8f4-e14a25f6e4e5",
+      "name": "9点半采集服务请求"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:23119/processor/format",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"data\": [{\n    \"collect\": {{ JSON.stringify($json.items_by_source) }}\n  }]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        624,
+        -560
+      ],
+      "id": "9f80ce64-d49d-425d-b39e-ea374da3ce2e",
+      "name": "9点半数据处理服务请求"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:23119/push",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"items\": {{ JSON.stringify($json.messages) }},\n  \"targets\": []\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        816,
+        -560
+      ],
+      "id": "d0b54aa7-7c94-42ac-809e-0e378254d2ae",
+      "name": "9点半推送服务请求"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
               "triggerAtHour": 9
             }
           ]
@@ -304,6 +379,39 @@
   ],
   "pinData": {},
   "connections": {
+    "每天9点半触发": {
+      "main": [
+        [
+          {
+            "node": "9点半采集服务请求",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "9点半采集服务请求": {
+      "main": [
+        [
+          {
+            "node": "9点半数据处理服务请求",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "9点半数据处理服务请求": {
+      "main": [
+        [
+          {
+            "node": "9点半推送服务请求",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "每天9点触发": {
       "main": [
         [

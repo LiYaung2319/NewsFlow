@@ -73,7 +73,7 @@ main.py
 
 ## 信息源
 
-当前共有 6 个逻辑信息源：
+当前共有 7 个逻辑信息源：
 
 | 标识 | 网站 | 采集内容 |
 | --- | --- | --- |
@@ -83,6 +83,7 @@ main.py
 | `aihot` | [AIHOT](https://aihot.virxact.com/) | AI 热点榜和今日 AI 日报 |
 | `CSDN` | [CSDN](https://www.csdn.net/) | 资讯头条、人工智能和 Python |
 | `AgentArena` | [Agent Arena](https://arena.ai/leaderboard/agent/overall) | Agent Overall 榜单前 50 名 |
+| `EverythingSkill` | [EverythingSkill](https://everythingskill.net/zh/rankings/hot) | 热榜和新榜前 30 名 |
 
 ### AIHOT 复合信息源
 
@@ -121,6 +122,17 @@ main.py
 ### AgentArena 普通信息源
 
 `AgentArena` 采集 Agent Arena `Overall` 榜单按排名前 50 名的模型，结果键为 `AgentArena`。每条结果包含可选的 `rank` 字段，按榜单排名排序；不同模型条目即使共享同一个官方 URL 也会保留。榜单条目缺少官方 URL 时，回填为 Overall 榜单页面 URL。该信息源不采集 `Net Improvement` 或其它榜单指标。
+
+### EverythingSkill 复合信息源
+
+`EverythingSkill` 对外是一个信息源，内部拆分为两个独立榜单：
+
+| 内部结果键 | 页面 | 内容 | 展示标题 |
+| --- | --- | --- | --- |
+| `EverythingSkill_hot` | `/zh/rankings/hot` | 热榜前 30 名 | EverythingSkill 热榜 |
+| `EverythingSkill_new` | `/zh/rankings/new` | 新榜前 30 名 | EverythingSkill 新榜 |
+
+每条结果包含 `rank`、`title` 和 `url` 字段，其中 `title` 按“技能名称（简介）”组合，两个榜单分别返回、分别格式化、分别推送。
 
 `CSDN_all` 当前从首页 `资讯头条` 区域提取顶部推荐和头条列表中的所有标题、链接；`CSDN_ai` 和 `CSDN_python` 从 CSDN 内容接口的 `extend.title`、`extend.url` 字段提取前 10 条。
 

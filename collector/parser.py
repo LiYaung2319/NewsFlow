@@ -501,6 +501,61 @@ class AgentArenaParser(BaseParser):
         pass
 
 
+class EverythingSkillParser(BaseParser):
+    """EverythingSkill 热榜和新榜解析器。"""
+
+    source_name: str = "EverythingSkill"
+    base_url: str = "https://everythingskill.net/"
+    max_rank: int = 30
+
+    def __init__(self, section: str):
+        self.section = section
+        self.source_name = f"EverythingSkill_{section}"
+
+    def parse_list(self, selector: Selector) -> List[ParsedItem]:
+        """提取榜单前 30 名的排名、标题、简介和详情链接。"""
+        rows = selector.xpath(
+            "//a[starts-with(@href, '/zh/skills/') and "
+            "contains(concat(' ', normalize-space(@class), ' '), ' group ')]"
+        )
+        items = []
+        seen_urls = set()
+        for row in rows:
+            rank_text = row.xpath("./div[1]//span[1]/text()").get("").strip()
+            match = re.match(r"^(\d+)$", rank_text)
+            rank = int(match.group(1)) if match else None
+            if rank is None or rank < 1 or rank > self.max_rank:
+                continue
+
+            title = row.xpath(
+                ".//span[contains(@class, 'text-[15px]')][1]/text()"
+            ).get("").strip()
+            summary = row.xpath(
+                ".//p[contains(@class, 'text-[13px]')][1]/text()"
+            ).get("").strip()
+            relative_url = row.xpath("@href").get("").strip()
+            url = urljoin(self.base_url, relative_url)
+            if not title or not relative_url or url in seen_urls:
+                continue
+
+            display_title = f"{title}（{summary}）" if summary else title
+            items.append(
+                ParsedItem(
+                    title=display_title,
+                    url=url,
+                    source=self.source_name,
+                    rank=rank,
+                )
+            )
+            seen_urls.add(url)
+
+        return sorted(items, key=lambda item: item.rank or 0)
+
+    def parse_detail(self, selector: Selector) -> ParsedItem:
+        """EverythingSkill 详情页解析预留接口。"""
+        pass
+
+
 class ArticleParser(BaseParser):
     """
     通用文章解析器
@@ -587,6 +642,18 @@ SOURCES: Dict[str, Dict[str, Any]] = {
     "AgentArena": {
         "parser": AgentArenaParser(),
         "home_url": "https://arena.ai/leaderboard/agent/overall",
+    },
+    "EverythingSkill": {
+        "sections": {
+            "EverythingSkill_hot": {
+                "parser": EverythingSkillParser(section="hot"),
+                "home_url": "https://everythingskill.net/zh/rankings/hot",
+            },
+            "EverythingSkill_new": {
+                "parser": EverythingSkillParser(section="new"),
+                "home_url": "https://everythingskill.net/zh/rankings/new",
+            },
+        },
     },
 }
 
