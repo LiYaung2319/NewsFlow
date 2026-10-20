@@ -2,7 +2,7 @@
 
 NewsFlow 是一个轻量级新闻采集、格式化和 Webhook 推送服务。项目采用模块化单体架构：采集、处理和推送功能运行在同一个 FastAPI/Uvicorn 进程中，通过 HTTP 接口提供能力。
 
-项目本身不包含数据库、消息队列或定时任务。完整的新闻工作流由外部调用方按顺序编排：
+项目不包含消息队列或进程内定时任务。招聘采集使用本地 SQLite 保存站点限速状态和短期结果缓存；完整工作流由外部调用方按顺序编排：
 
 ```text
 POST /collect
@@ -30,7 +30,9 @@ main.py
 ├── collector/
 │   ├── services.py        采集 API 和采集流程编排
 │   ├── browser_client.py  Playwright 异步浏览器客户端
-│   └── parser.py          信息源解析器和注册表
+│   ├── parser.py          信息源解析器和注册表
+│   ├── job_collector.py   招聘列表响应捕获、条件校验和限量翻页
+│   └── job_state.py       招聘源 SQLite 租约、冷却和短期缓存
 ├── processor/
 │   ├── services.py        格式化 API
 │   ├── formatter.py       Markdown 格式化器
@@ -73,7 +75,7 @@ main.py
 
 ## 信息源
 
-当前共有 7 个逻辑信息源：
+当前共有 9 个逻辑信息源：
 
 | 标识 | 网站 | 采集内容 |
 | --- | --- | --- |
@@ -84,6 +86,34 @@ main.py
 | `CSDN` | [CSDN](https://www.csdn.net/) | 资讯头条、人工智能和 Python |
 | `AgentArena` | [Agent Arena](https://arena.ai/leaderboard/agent/overall) | Agent Overall 榜单前 50 名 |
 | `EverythingSkill` | [EverythingSkill](https://everythingskill.net/zh/rankings/hot) | 热榜和新榜前 30 名 |
+| `zhaopin` | [智联招聘](https://www.zhaopin.com/sou) | 免登录全国关键词搜索列表，默认“计算机类” |
+| `51job` | [前程无忧](https://we.51job.com/pc/search) | 免登录城市组关键词搜索列表，默认“计算机类” |
+
+### 招聘普通信息源
+
+`zhaopin` 和 `51job` 分别注册、分别返回、分别格式化。两站均使用 Playwright 正常访问搜索页，监听页面自身返回的列表 JSON，保留响应已有的岗位描述，不逐条访问详情页。
+
+```json
+{
+  "sources": ["zhaopin", "51job"],
+  "job_query": {
+    "keyword": "计算机类",
+    "max_pages": 3,
+    "limit_per_source": 100,
+    "cities_51job": ["北京", "上海", "广州", "深圳", "杭州"]
+  }
+}
+```
+
+智联使用全国查询；51job 当前按最多 5 个城市一组查询，不能将默认城市的结果标记为全国。`max_pages` 是**每站所有城市组共享的总页数预算**，范围 1–6；每站条数上限范围 1–120。平台搜索结果可能包含非技术岗位，按用户确认保留原始搜索结果。
+
+`source_metadata` 返回实际城市、页数、去重数、字段覆盖、缓存命中和停止原因。全国查询不等于全国全量；不能保证平台提供每个岗位的所有字段，缺失项返回 `null` 并统计。包含部分数据及错误时，招聘采集返回 `partial_success`。
+
+同站串行，列表操作间隔默认 12–15 秒；相同查询缓存 30 分钟，站点跨任务冷却 5 分钟。遇登录、验证码、401/403/429 等立即停止、保留已取得数据并冷却至少 30 分钟，尊重更长的 `Retry-After`。本机跨进程租约可阻止重复采集；这些限制不能保证网站永远不限制访问。
+
+统一岗位字段、本机登录初始化、支持城市、配置和验证方法见 [招聘采集说明](docs/recruitment.md)。`sources` 为空或含 `all` 时也会包含这两个新注册的招聘源。
+
+启动服务时，智联和51job缺少本地会话会分别打开登录浏览器。在网站完成登录后，切换到“登录配置”标签页点击“登录完成，保存会话”。会话保存在 `data/auth/<source>/storage_state.json`，以后启动自动复用；远程部署可上传到同一路径。不需要调用认证路由或运行单独登录脚本。关闭窗口或超时不会保存会话，服务其他来源继续运行。
 
 ### AIHOT 复合信息源
 
@@ -501,4 +531,11 @@ stop.bat   终止 python.exe 进程
 - HTTPX
 - python-dotenv
 
-当前项目未包含自动化测试、数据库、任务队列、容器配置或 CI/CD 配置。采集、格式化和推送也不会在服务内部自动串联，调用方需要分别调用对应接口。
+招聘模块包含离线自动化测试和真实采集验证脚本，SQLite 仅用于本机限速和短期缓存。项目未包含任务队列、容器配置或 CI/CD 配置。采集、格式化和推送不会在服务内部自动串联，调用方需要分别调用对应接口。
+
+```powershell
+.\.venv\Scripts\python.exe -B -m unittest discover -s tests -v
+.\.venv\Scripts\python.exe -B scripts/verify_jobs.py --pages 3 --limit 100
+```
+
+第二条命令会请求真实招聘网站并验证缓存、格式化，输出 `data/jobs_verification.json` 和 `.md`，不会调用 Webhook 推送。

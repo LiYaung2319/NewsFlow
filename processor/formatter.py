@@ -9,9 +9,12 @@
 
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List
+import re
 
 
 SOURCE_TITLES = {
+    "zhaopin": "智联招聘",
+    "51job": "前程无忧 51job",
     "AgentArena": "Agent Arena Overall 榜",
     "EverythingSkill_hot": "EverythingSkill 热榜",
     "EverythingSkill_new": "EverythingSkill 新榜",
@@ -75,6 +78,9 @@ class CollectFormatter(BaseFormatter):
         items_list = []
         for source, items in data.items():
             source_title = SOURCE_TITLES.get(source, f"{source} 资讯")
+            if items and all(item.get("kind") == "job" for item in items):
+                items_list.extend(self._format_jobs(source_title, items))
+                continue
             if any(item.get("rank") is not None for item in items):
                 items_list.extend(self._format_ranking(source_title, items))
                 continue
@@ -90,6 +96,36 @@ class CollectFormatter(BaseFormatter):
             if content != f"# {source_title}":
                 items_list.append(content)
         return items_list
+
+    @staticmethod
+    def _format_jobs(source_title: str, items: List[Dict[str, Any]]) -> List[str]:
+        """公开岗位摘要，完整描述保留在采集 JSON 中；先预算再分块。"""
+        def plain(value, limit=100):
+            value = re.sub(r"\s+", " ", str(value or "")).strip()
+            value = value[:limit]
+            return re.sub(r"([\\`*_{}\[\]<>])", r"\\\1", value)
+
+        header = f"# {source_title}\n> 关键词搜索结果，可能包含非技术岗位\n"
+        messages, current = [], header
+        for item in items:
+            url = str(item.get("url") or "").replace("(", "%28").replace(")", "%29")
+            if not url.startswith(("http://", "https://")) or len(url) > 800:
+                continue
+            title = plain(item.get("title"), 100)
+            company = plain(item.get("company") or "公司未提供")
+            city = plain(item.get("city") or "城市未提供")
+            salary = plain(item.get("salary_text") or "薪资未提供")
+            education = plain(item.get("education") or "学历未提供", 40)
+            published = plain(item.get("published_at") or "未提供", 40)
+            block = (f"\n- [{title}]({url})\n  {company}｜{city}\n"
+                     f"  {salary}｜{education}\n  发布时间：{published}\n")
+            if len(current + block) > 2000 and current != header:
+                messages.append(current)
+                current = header
+            current += block
+        if current != header:
+            messages.append(current)
+        return messages
 
     @staticmethod
     def _format_ranking(

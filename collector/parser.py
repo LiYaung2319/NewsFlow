@@ -19,8 +19,8 @@ import json
 import re
 from parsel import Selector
 from typing import List, Dict, Any
-from schemas import ParsedItem
-from urllib.parse import urljoin, urlparse
+from schemas import ParsedItem, JobItem
+from urllib.parse import urljoin, urlparse, urlunparse
 
 
 class BaseParser(ABC):
@@ -556,6 +556,133 @@ class EverythingSkillParser(BaseParser):
         pass
 
 
+class JobAccessError(RuntimeError):
+    """登录、验证、限流等访问限制；采集器必须停止而非重试。"""
+
+    def __init__(self, message, retry_after=0):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+def _job_text(value):
+    return str(value).strip() if value is not None and str(value).strip() else None
+
+
+def _job_url(value, domain):
+    if not isinstance(value, str) or not value.strip():
+        return ""
+    parsed = urlparse(urljoin(f"https://www.{domain}/", value.strip()))
+    host = parsed.hostname or ""
+    if parsed.scheme not in ("http", "https") or not (host == domain or host.endswith("." + domain)):
+        return ""
+    if parsed.username or parsed.password:
+        return ""
+    # These list responses use stable job IDs in the path; query fields are tracking data.
+    return urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", "", ""))
+
+
+class BaseJobParser(BaseParser):
+    """解析浏览器实际收到的列表 JSON，不发送网络请求。"""
+
+    required_fields = ("title", "company", "city", "salary_text", "education", "text", "published_at", "url")
+
+    def parse_list(self, selector: Selector) -> List[ParsedItem]:
+        if selector.type != "json":
+            raise ValueError("招聘源需要列表 JSON，不能将登录页或普通 HTML 当作岗位列表")
+        return self.parse_payload(selector.root)
+
+    def parse_detail(self, selector: Selector) -> ParsedItem:
+        raise NotImplementedError("招聘源只采集列表及列表响应已有的描述")
+
+    def parse_payload(self, payload) -> List[JobItem]:
+        records, _, _ = self.page_data(payload)
+        items = []
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+            item = self.make_item(record)
+            if not self.validate(item) or not item.job_id:
+                continue
+            item.missing_fields = [key for key in self.required_fields if not getattr(item, key)]
+            items.append(item)
+        return items
+
+    @staticmethod
+    def check_message(payload):
+        if not isinstance(payload, dict):
+            raise ValueError("招聘列表响应不是 JSON 对象")
+        message = str(payload.get("message") or payload.get("msg") or "")
+        if any(word in message.lower() for word in ("验证", "频繁", "登录", "访问受限", "captcha", "login", "forbidden")):
+            raise JobAccessError("上游要求登录/验证或限制访问")
+
+
+class ZhaopinParser(BaseJobParser):
+    source_name = "zhaopin"
+
+    def page_data(self, payload):
+        self.check_message(payload)
+        if payload.get("code") not in (200, "200"):
+            raise JobAccessError(f"智联拒绝列表请求，code={payload.get('code')}")
+        data = payload.get("data")
+        if not isinstance(data, dict):
+            raise ValueError("智联响应缺少 data")
+        if data.get("isVerification") not in (None, 0, "0", False):
+            raise JobAccessError("智联要求访问验证")
+        records = data.get("list")
+        if not isinstance(records, list):
+            raise ValueError("智联响应缺少岗位 list")
+        total = data.get("count")
+        return records, total if isinstance(total, int) else None, data.get("isEndPage") in (1, "1", True)
+
+    def make_item(self, entry):
+        detail = entry.get("jobDetailData") or {}
+        position = detail.get("position") or {}
+        desc = position.get("desc") or {}
+        location = position.get("workLocation") or {}
+        raw_text = desc.get("description") or entry.get("jobSummary") or ""
+        # Join HTML block text without executing any markup from the upstream page.
+        description = "\n".join(t.strip() for t in Selector(text=raw_text or "<div/>").xpath(
+            "//text()[not(ancestor::script) and not(ancestor::style)]"
+        ).getall() if t.strip())
+        return JobItem(
+            title=_job_text(entry.get("name")) or "",
+            url=_job_url(entry.get("positionURL") or entry.get("positionUrl"), "zhaopin.com"),
+            source=self.source_name, job_id=str(entry.get("number") or entry.get("jobId") or ""),
+            company=_job_text(entry.get("companyName")),
+            city=_job_text(entry.get("workCity")), salary_text=_job_text(entry.get("salary60")),
+            education=_job_text(entry.get("education")), published_at=_job_text(entry.get("publishTime")),
+            text=description or None,
+        )
+
+
+class Job51Parser(BaseJobParser):
+    source_name = "51job"
+
+    def page_data(self, payload):
+        self.check_message(payload)
+        if str(payload.get("status")) != "1":
+            raise JobAccessError(f"51job 拒绝列表请求，status={payload.get('status')}")
+        body = payload.get("resultbody") or {}
+        job = body.get("job") if isinstance(body, dict) else None
+        if not isinstance(job, dict) or not isinstance(job.get("items"), list):
+            raise ValueError("51job 响应缺少 job.items")
+        total = job.get("totalCount", job.get("totalcount"))
+        if isinstance(total, str) and total.isdigit():
+            total = int(total)
+        return job["items"], total if isinstance(total, int) else None, False
+
+    def make_item(self, entry):
+        area = entry.get("jobAreaLevelDetail") or {}
+        return JobItem(
+            title=_job_text(entry.get("jobName")) or "", url=_job_url(entry.get("jobHref"), "51job.com"),
+            source=self.source_name, job_id=str(entry.get("jobId") or ""),
+            company=_job_text(entry.get("fullCompanyName") or entry.get("companyName")),
+            city=_job_text(area.get("cityString")), salary_text=_job_text(entry.get("provideSalaryString")),
+            education=_job_text(entry.get("degreeString")), published_at=_job_text(entry.get("issueDateString")),
+            text=_job_text(entry.get("jobDescribe")),
+        )
+
+
 class ArticleParser(BaseParser):
     """
     通用文章解析器
@@ -599,6 +726,28 @@ class ArticleParser(BaseParser):
 # 格式：{"源名称": {"parser": 解析器类, "home_url": 主页URL}}
 # 复合信息源可使用 sections 配置多个实际访问页面
 SOURCES: Dict[str, Dict[str, Any]] = {
+    "zhaopin": {
+        "parser": ZhaopinParser(),
+        "home_url": "https://www.zhaopin.com/sou",
+        "collector": "jobs",
+        "auth": {
+            "mode": "required",
+            "login_url": "https://www.zhaopin.com/",
+            "state_path": "data/auth/zhaopin/storage_state.json",
+            "domain": "zhaopin.com",
+        },
+    },
+    "51job": {
+        "parser": Job51Parser(),
+        "home_url": "https://we.51job.com/pc/search",
+        "collector": "jobs",
+        "auth": {
+            "mode": "required",
+            "login_url": "https://we.51job.com/",
+            "state_path": "data/auth/51job/storage_state.json",
+            "domain": "51job.com",
+        },
+    },
     "sina": {
         "parser": SinaParser(),
         "home_url": "https://news.sina.com.cn/",  # 新浪新闻主页

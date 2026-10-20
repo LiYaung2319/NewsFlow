@@ -9,6 +9,7 @@ NewsFlow 项目入口模块
 
 import sys
 import logging
+from contextlib import asynccontextmanager
 
 if sys.platform == "win32":
     import asyncio
@@ -23,6 +24,7 @@ from collector.services import router as collect_router
 from pusher.services import router as pusher_router
 from processor.services import router as processor_router
 from config import settings
+from collector.auth_session import auth_tasks
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +65,15 @@ def configure_logging() -> None:
 configure_logging()
 
 
+@asynccontextmanager
+async def lifespan(app):
+    await auth_tasks.start_missing()
+    try:
+        yield
+    finally:
+        await auth_tasks.close()
+
+
 def create_app() -> FastAPI:
     """
     创建 FastAPI 应用实例
@@ -76,6 +87,7 @@ def create_app() -> FastAPI:
         title="NewsFlow 信息工作流服务",
         description="多源新闻数据采集系统和推送系统",
         version="1.0.0",
+        lifespan=lifespan,
     )
 
     # 注册采集服务路由

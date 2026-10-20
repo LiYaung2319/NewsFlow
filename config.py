@@ -26,5 +26,14 @@ class Settings:
     browser_wait_time: int = 0  # 额外等待时间（秒），等待动态内容
     max_concurrency: int = 3  # 最大并发页数（浏览器资源占用较大）
 
+    # 招聘源节流跨请求/进程持久化；预算不能通过请求参数放宽。
+    jobs_request_interval: float = 12.0
+    jobs_cache_ttl: int = 1800
+    jobs_run_cooldown: int = 300
+    jobs_block_cooldown: int = 1800
+    jobs_response_timeout: int = 30000  # 毫秒
+    auth_login_timeout: int = 300  # 来源登录任务最长等待秒数
+    jobs_state_path: str = os.path.join(os.path.dirname(__file__), "data", "jobs_state.sqlite3")
+
 
 settings = Settings()  # 创建 Settings 类的唯一实例，供整个项目使用

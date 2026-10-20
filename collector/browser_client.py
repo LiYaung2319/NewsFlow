@@ -8,10 +8,12 @@
 
 import asyncio
 import logging
+from contextlib import asynccontextmanager
 from typing import Dict, List, Optional, Tuple
 from parsel import Selector
 from playwright.async_api import async_playwright
 from config import settings
+from collector.auth_session import require_state, session_version
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +46,8 @@ class BrowserClient:
         self._playwright = None
         self._browser = None
         self._context = None
+        self._auth_contexts = {}
+        self._start_lock = asyncio.Lock()
 
     async def _start(self):
         """
@@ -51,6 +55,10 @@ class BrowserClient:
 
         原理：使用惰性初始化，首次调用时才启动浏览器，避免不必要的资源占用
         """
+        async with self._start_lock:
+            await self._start_unlocked()
+
+    async def _start_unlocked(self):
         if self._playwright is None:
             self._playwright = await async_playwright().start()
         if self._browser is None:
@@ -89,6 +97,7 @@ class BrowserClient:
                 wait_until=self.wait_until,
                 timeout=self.timeout * 1000,  # 转换为毫秒
             )
+
             if response and response.status >= 400:
                 body = (await response.text())[:300]
                 raise RuntimeError(
@@ -102,6 +111,32 @@ class BrowserClient:
             return Selector(text=html_content)
         finally:
             await page.close()
+
+    @asynccontextmanager
+    async def open_page(self, source=None):
+        """让需要监听页面响应及顺序翻页的信息源复用现有浏览器。"""
+        context = await self._get_context(source=source)
+        page = await context.new_page()
+        try:
+            yield page
+        finally:
+            await page.close()
+
+    async def _get_context(self, source=None):
+        await self._start()
+        auth = require_state(source)
+        if auth["mode"] == "anonymous":
+            return self._context
+        context_key = (source, session_version(source))
+        if context_key not in self._auth_contexts:
+            state_path = auth["state_path"]
+            context = await self._browser.new_context(
+                storage_state=str(state_path) if state_path else None,
+                viewport={"width": 1920, "height": 1080},
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            )
+            self._auth_contexts[context_key] = context
+        return self._auth_contexts[context_key]
 
     async def get_batch(
         self,
@@ -164,6 +199,9 @@ class BrowserClient:
         if self._context:
             await self._context.close()
             self._context = None
+        for context in self._auth_contexts.values():
+            await context.close()
+        self._auth_contexts.clear()
         if self._browser:
             await self._browser.close()
             self._browser = None

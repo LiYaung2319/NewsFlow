@@ -16,12 +16,14 @@ POST /collect: 执行数据采集
 """
 
 import logging
+import asyncio
 import time
 from typing import Dict, List, Optional, Tuple
 from fastapi import APIRouter
 from parsel import Selector
 from collector.browser_client import BrowserClient
 from collector.parser import SOURCES, SOURCES_KEYS
+from collector.job_collector import collect_jobs
 from schemas import CollectRequest, CollectResponse
 
 router = APIRouter(prefix="/collect", tags=["collector"])
@@ -36,9 +38,12 @@ def _log_source_result(
     """记录单个信息源结果。"""
     item_count = len(items or [])
     if error:
-        logger.error(
-            "collect source=%s status=failed items=0 error=%s",
+        logger.log(
+            logging.WARNING if item_count else logging.ERROR,
+            "collect source=%s status=%s items=%d error=%s",
             source,
+            "partial_success" if item_count else "failed",
+            item_count,
             error,
         )
     elif item_count == 0:
@@ -240,28 +245,49 @@ async def collect(request: CollectRequest):
         else:
             sources_to_collect = request.sources
 
-        source = sources_to_collect[0] if len(sources_to_collect) == 1 else None
+        sources_to_collect = list(dict.fromkeys(sources_to_collect))
+        job_sources = [name for name in sources_to_collect if SOURCES.get(name, {}).get("collector") == "jobs"]
+        ordinary_sources = [name for name in sources_to_collect if name not in job_sources]
+        source = ordinary_sources[0] if len(ordinary_sources) == 1 else None
         is_composite_source = (
             source in SOURCES and "sections" in SOURCES[source]
             if source
             else False
         )
 
-        if len(sources_to_collect) == 1 and not is_composite_source:
+        if not ordinary_sources:
+            items_by_source, errors = {}, []
+        elif len(ordinary_sources) == 1 and not is_composite_source:
             items_by_source, errors = await _collect_single(client, source)
         else:
-            source_configs = _expand_source_configs(sources_to_collect)
+            source_configs = _expand_source_configs(ordinary_sources)
             items_by_source, errors = await _collect_batch(
                 client, source_configs, request.concurrency
             )
 
+        source_metadata = {}
+        # 站点之间并发，站点内部严格串行；SQLite 租约限制其它请求/进程重入。
+        job_results = await asyncio.gather(
+            *(collect_jobs(client, name, request.job_query) for name in job_sources),
+            return_exceptions=True,
+        )
+        for name, result in zip(job_sources, job_results):
+            if isinstance(result, BaseException):
+                items_by_source[name] = []
+                errors.append(f"{name} 采集失败: {result}")
+                source_metadata[name] = {"stop_reason": "internal_error"}
+            else:
+                items_by_source[name] = result["items"]
+                errors.extend(result["errors"])
+                source_metadata[name] = result["metadata"]
+                _log_source_result(name, result["items"], "; ".join(result["errors"]) or None)
+
         total_items = sum(len(items) for items in items_by_source.values())
         errors = [e for e in errors if e]
-        expected_sources = (
-            _expand_source_configs(sources_to_collect)
-            if len(sources_to_collect) != 1 or is_composite_source
-            else {source: SOURCES[source]} if source in SOURCES else {source: {}}
-        )
+        expected_sources = _expand_source_configs(sources_to_collect)
+        for name in sources_to_collect:
+            if name not in SOURCES:
+                expected_sources[name] = {}
         error_sources = {
             source_name
             for source_name in expected_sources
@@ -288,10 +314,14 @@ async def collect(request: CollectRequest):
             int((time.perf_counter() - started_at) * 1000),
         )
 
+        status = "success" if total_items > 0 else "no_data"
+        if job_sources and errors:
+            status = "partial_success" if total_items > 0 else "failed"
         return CollectResponse(
-            status="success" if total_items > 0 else "no_data",
+            status=status,
             total_sources=len(sources_to_collect),
             items_by_source=items_by_source,
             total_items=total_items,
             errors=errors if errors else None,
+            source_metadata=source_metadata or None,
         )
